@@ -221,7 +221,8 @@ async function placeOrder(){
   const { data: order, error: orderError } = await supabaseClient.from("orders").insert({
     customer_id: activeUser.id,
     restaurant_id: restaurantId,
-    total_amount: total,
+    food_total: total,
+    final_total: total,
     status: "pending"
   }).select("id").single();
 
@@ -254,7 +255,7 @@ function timelineSteps(status){
 async function loadTracking(){
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,status,total_amount,created_at")
+    .select("id,status,final_total,created_at")
     .eq("customer_id", activeUser.id)
     .order("created_at", { ascending: false })
     .limit(5);
@@ -267,7 +268,7 @@ async function loadTracking(){
   data.forEach((order) => {
     const card = document.createElement("div");
     card.className = "list-item";
-    card.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>${rupees(order.total_amount)}</span><div class='timeline'>${timelineSteps(order.status)}</div>`;
+    card.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>${rupees(order.final_total)}</span><div class='timeline'>${timelineSteps(order.status)}</div>`;
     container.appendChild(card);
   });
 }
