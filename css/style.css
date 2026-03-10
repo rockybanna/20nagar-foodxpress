@@ -75,6 +75,9 @@ input, select, textarea{
 .status-ready_for_pickup, .status-picked_up{ background:#dcfce7; }
 .status-delivered{ background:#dcfce7; }
 .status-cancelled{ background:#fee2e2; }
+.status-pending_verification{ background:#fef3c7; }
+.status-approved{ background:#dcfce7; }
+.status-rejected{ background:#fee2e2; }
 
 .sticky-search{
   position:sticky;

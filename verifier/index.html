@@ -19,7 +19,7 @@
   </div>
 
   <div class="card">
-    <h3>Pending Wallet Verifications</h3>
+    <h3>Pending Payment Verifications</h3>
     <div id="payments-list"></div>
   </div>
 </div>
@@ -64,8 +64,7 @@ async function loadPayments(){
   setMessage("Loading payment queue...");
   const { data, error } = await supabaseClient
     .from("payments")
-    .select("id,order_id,amount,method,status")
-    .eq("method", "Wallet")
+    .select("id,order_id,amount,method,status,proof_url")
     .eq("status", "pending_verification")
     .limit(50);
 
@@ -78,7 +77,7 @@ async function loadPayments(){
   }
 
   if(!data.length){
-    container.innerHTML = "<p class='small'>No pending wallet verifications.</p>";
+    container.innerHTML = "<p class='small'>No pending verifications.</p>";
     setMessage("Queue empty");
     return;
   }
@@ -89,7 +88,9 @@ async function loadPayments(){
     div.innerHTML = `
       <b>Payment ${payment.id}</b><br>
       <span class='small'>Order: ${payment.order_id}</span><br>
-      <span class='small'>Amount: ₹${Number(payment.amount).toFixed(2)}</span><br><br>
+      <span class='small'>Amount: ₹${Number(payment.amount).toFixed(2)}</span><br>
+      <span class='small'>Method: ${payment.method}</span><br>
+      <span class='small'>Proof: ${payment.proof_url ? `<a href='${payment.proof_url}' target='_blank'>View proof</a>` : 'Not uploaded'}</span><br><br>
       <button class='button' onclick="verifyPayment('${payment.id}','${payment.order_id}','approved')">Approve</button>
       <button class='button secondary' onclick="verifyPayment('${payment.id}','${payment.order_id}','rejected')">Reject</button>
     `;
@@ -110,12 +111,19 @@ async function verifyPayment(paymentId, orderId, status){
     return;
   }
 
+  if(status === "approved"){
+    await supabaseClient
+      .from("orders")
+      .update({ status: "pending" })
+      .eq("id", orderId)
+      .eq("status", "pending");
+  }
+
   if(status === "rejected"){
     await supabaseClient
       .from("orders")
       .update({ status: "cancelled" })
-      .eq("id", orderId)
-      .eq("status", "pending");
+      .eq("id", orderId);
   }
 
   await loadPayments();

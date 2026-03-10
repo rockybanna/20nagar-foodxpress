@@ -78,7 +78,13 @@ function renderMetrics(readyOrders, myOrders){
 }
 
 async function loadReadyOrders(){
-  const { data, error } = await supabaseClient.from("orders").select("id,final_total,status").eq("status", "ready_for_pickup").is("dp_id", null).limit(20);
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,final_total,status,payments!inner(status)")
+    .eq("status", "ready_for_pickup")
+    .eq("payments.status", "approved")
+    .is("dp_id", null)
+    .limit(20);
   const container = document.getElementById("ready-orders");
   container.innerHTML = "";
   if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
@@ -93,7 +99,13 @@ async function loadReadyOrders(){
 }
 
 async function loadMyOrders(){
-  const { data, error } = await supabaseClient.from("orders").select("id,status,final_total").eq("dp_id", dpId).in("status", ["picked_up", "ready_for_pickup"]).order("id", { ascending: false });
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,status,final_total,payments!inner(status)")
+    .eq("dp_id", dpId)
+    .eq("payments.status", "approved")
+    .in("status", ["picked_up", "ready_for_pickup"])
+    .order("id", { ascending: false });
   const container = document.getElementById("my-orders");
   container.innerHTML = "";
   if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
