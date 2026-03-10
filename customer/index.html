@@ -231,12 +231,17 @@ async function placeOrder(){
   const { error: itemError } = await supabaseClient.from("order_items").insert(orderItems);
   if(itemError){ alert(`Order item failed: ${itemError.message}`); return; }
 
-  await supabaseClient.from("payments").insert({
+  const { error: paymentError } = await supabaseClient.from("payments").insert({
     order_id: order.id,
     amount: total,
     method: paymentMethod,
     status: paymentMethod === "COD" ? "pending_cod" : "pending_verification"
   });
+
+  if(paymentError){
+    alert(`Payment record failed: ${paymentError.message}. Your order was not confirmed.`);
+    return;
+  }
 
   cart = [];
   renderCart();
