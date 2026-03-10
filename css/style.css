@@ -1,28 +1,86 @@
 body{
   margin:0;
   font-family: Arial, sans-serif;
-  background:#ffffff;
+  background:#f5f5f5;
+  color:#222;
 }
 
 .header{
-  background:#000000;
-  color:#ffffff;
-  padding:12px;
+  background:#111;
+  color:#fff;
+  padding:14px;
   text-align:center;
+  font-weight:700;
+}
+
+.page{
+  max-width:980px;
+  margin:0 auto;
+  padding:12px;
 }
 
 .button{
   background:#ff7a00;
-  color:white;
-  padding:10px 15px;
+  color:#fff;
+  padding:10px 14px;
   border:none;
-  border-radius:5px;
+  border-radius:6px;
+  cursor:pointer;
+  margin:2px;
+}
+
+.button.secondary{
+  background:#444;
+}
+
+.button:disabled{
+  background:#b8b8b8;
+  cursor:not-allowed;
 }
 
 .card{
-  background:#ffffff;
+  background:#fff;
   border:1px solid #ddd;
-  margin:10px;
+  margin:10px 0;
   padding:12px;
   border-radius:8px;
 }
+
+.list-item{
+  border:1px solid #eee;
+  padding:10px;
+  margin:8px 0;
+  border-radius:8px;
+}
+
+.row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+input, select, textarea{
+  padding:10px;
+  border:1px solid #ccc;
+  border-radius:6px;
+  width:100%;
+  box-sizing:border-box;
+}
+
+.badge{
+  display:inline-block;
+  padding:3px 8px;
+  border-radius:999px;
+  background:#ececec;
+  font-size:12px;
+}
+
+.status-pending{ background:#fff3cd; }
+.status-accepted, .status-preparing{ background:#d1ecf1; }
+.status-ready_for_pickup, .status-picked_up{ background:#d4edda; }
+.status-delivered{ background:#c3e6cb; }
+.status-cancelled{ background:#f8d7da; }
+
+h3{ margin:8px 0; }
+
+.small{ font-size:12px; color:#666; }

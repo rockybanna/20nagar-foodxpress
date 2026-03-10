@@ -2,18 +2,211 @@
 <html>
 <head>
   <title>Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
 </head>
-
 <body>
+<div class="header">Admin Panel</div>
+<div class="page">
+  <div class="card">
+    <div class="row">
+      <button class="button" onclick="loadDashboard()">Refresh Dashboard</button>
+      <button class="button secondary" onclick="logout()">Logout</button>
+    </div>
+    <p id="admin-msg" class="small"></p>
+  </div>
 
-<div class="header">
-Admin Panel
+  <div class="card">
+    <h3>Restaurants</h3>
+    <div id="restaurants-admin"></div>
+  </div>
+
+  <div class="card">
+    <h3>Delivery Partners</h3>
+    <div id="dp-admin"></div>
+  </div>
+
+  <div class="card">
+    <h3>Recent Orders</h3>
+    <div id="orders-admin"></div>
+  </div>
 </div>
 
-<div class="card">
-Platform management dashboard.
-</div>
+<script>
+let adminUser = null;
 
+function setAdminMsg(text){
+  document.getElementById("admin-msg").innerText = text;
+}
+
+async function logout(){
+  await supabaseClient.auth.signOut();
+  window.location.href = "../";
+}
+
+async function requireAdmin(){
+  const { data } = await supabaseClient.auth.getSession();
+  if(!data.session){
+    window.location.href = "../";
+    return false;
+  }
+
+  adminUser = data.session.user;
+
+  const { data: profile, error } = await supabaseClient
+    .from("users")
+    .select("role")
+    .eq("id", adminUser.id)
+    .single();
+
+  if(error || profile.role !== "admin"){
+    alert("Only admin role allowed.");
+    window.location.href = "../";
+    return false;
+  }
+
+  return true;
+}
+
+async function loadRestaurants(){
+  const { data, error } = await supabaseClient
+    .from("restaurants")
+    .select("id,name,is_online")
+    .order("name", { ascending: true })
+    .limit(100);
+
+  const container = document.getElementById("restaurants-admin");
+  container.innerHTML = "";
+
+  if(error){
+    container.innerHTML = `<p class='small'>${error.message}</p>`;
+    return;
+  }
+
+  if(!data.length){
+    container.innerHTML = "<p class='small'>No restaurants found.</p>";
+    return;
+  }
+
+  data.forEach((r) => {
+    const div = document.createElement("div");
+    div.className = "list-item";
+    div.innerHTML = `
+      <b>${r.name}</b><br>
+      <span class='badge'>${r.is_online ? "online" : "offline"}</span><br>
+      <button class='button' onclick="setRestaurantStatus('${r.id}', ${!r.is_online})">Set ${r.is_online ? "Offline" : "Online"}</button>
+    `;
+    container.appendChild(div);
+  });
+}
+
+async function loadDPs(){
+  const { data, error } = await supabaseClient
+    .from("delivery_partners")
+    .select("id,name,status")
+    .limit(100);
+
+  const container = document.getElementById("dp-admin");
+  container.innerHTML = "";
+
+  if(error){
+    container.innerHTML = `<p class='small'>${error.message}</p>`;
+    return;
+  }
+
+  if(!data.length){
+    container.innerHTML = "<p class='small'>No delivery partners found.</p>";
+    return;
+  }
+
+  data.forEach((dp) => {
+    const div = document.createElement("div");
+    div.className = "list-item";
+    div.innerHTML = `
+      <b>${dp.name || dp.id}</b><br>
+      <span class='badge'>${dp.status || "offline"}</span><br>
+      <button class='button' onclick="setDpStatus('${dp.id}','online')">Online</button>
+      <button class='button secondary' onclick="setDpStatus('${dp.id}','offline')">Offline</button>
+    `;
+    container.appendChild(div);
+  });
+}
+
+async function loadOrders(){
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,status,total_amount,customer_id,restaurant_id")
+    .order("id", { ascending: false })
+    .limit(20);
+
+  const container = document.getElementById("orders-admin");
+  container.innerHTML = "";
+
+  if(error){
+    container.innerHTML = `<p class='small'>${error.message}</p>`;
+    return;
+  }
+
+  if(!data.length){
+    container.innerHTML = "<p class='small'>No orders yet.</p>";
+    return;
+  }
+
+  data.forEach((order) => {
+    const div = document.createElement("div");
+    div.className = "list-item";
+    div.innerHTML = `
+      <b>Order ${order.id}</b><br>
+      <span class='badge status-${order.status}'>${order.status}</span><br>
+      <span class='small'>Amount: ₹${Number(order.total_amount).toFixed(2)}</span>
+    `;
+    container.appendChild(div);
+  });
+}
+
+async function setRestaurantStatus(id, isOnline){
+  const { error } = await supabaseClient
+    .from("restaurants")
+    .update({ is_online: isOnline })
+    .eq("id", id);
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  await loadRestaurants();
+}
+
+async function setDpStatus(id, status){
+  const { error } = await supabaseClient
+    .from("delivery_partners")
+    .update({ status })
+    .eq("id", id);
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  await loadDPs();
+}
+
+async function loadDashboard(){
+  setAdminMsg("Loading dashboard...");
+  await loadRestaurants();
+  await loadDPs();
+  await loadOrders();
+  setAdminMsg("Dashboard loaded.");
+}
+
+(async function init(){
+  const ok = await requireAdmin();
+  if(!ok){ return; }
+  await loadDashboard();
+})();
+</script>
 </body>
 </html>

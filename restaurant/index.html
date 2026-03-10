@@ -2,18 +2,150 @@
 <html>
 <head>
   <title>Restaurant Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
 </head>
-
 <body>
+<div class="header">Restaurant Panel</div>
+<div class="page">
+  <div class="card">
+    <div class="row">
+      <button class="button" onclick="loadOrders()">Refresh Orders</button>
+      <button class="button secondary" onclick="logout()">Logout</button>
+    </div>
+    <p id="rest-msg" class="small"></p>
+  </div>
 
-<div class="header">
-Restaurant Panel
+  <div class="card">
+    <h3>Incoming Orders</h3>
+    <p class="small">Allowed flow: pending → accepted → preparing → ready_for_pickup</p>
+    <div id="orders-list"></div>
+  </div>
 </div>
 
-<div class="card">
-Manage orders and menu.
-</div>
+<script>
+let restaurantUser = null;
+let restaurantId = null;
 
+function msg(text){
+  document.getElementById("rest-msg").innerText = text;
+}
+
+async function logout(){
+  await supabaseClient.auth.signOut();
+  window.location.href = "../";
+}
+
+async function requireRestaurant(){
+  const { data } = await supabaseClient.auth.getSession();
+  if(!data.session){
+    window.location.href = "../";
+    return false;
+  }
+
+  restaurantUser = data.session.user;
+  const { data: profile, error } = await supabaseClient
+    .from("users")
+    .select("role")
+    .eq("id", restaurantUser.id)
+    .single();
+
+  if(error || profile.role !== "restaurant"){
+    alert("Only restaurant role allowed.");
+    window.location.href = "../";
+    return false;
+  }
+
+  const { data: ownedRestaurant } = await supabaseClient
+    .from("restaurants")
+    .select("id")
+    .eq("id", restaurantUser.id)
+    .maybeSingle();
+
+  restaurantId = ownedRestaurant?.id || restaurantUser.id;
+  return true;
+}
+
+function nextStatusActions(order){
+  if(order.status === "pending"){
+    return `
+      <button class='button' onclick="updateOrderStatus('${order.id}','accepted')">Accept</button>
+      <button class='button secondary' onclick="updateOrderStatus('${order.id}','cancelled')">Reject</button>
+    `;
+  }
+
+  if(order.status === "accepted"){
+    return `<button class='button' onclick="updateOrderStatus('${order.id}','preparing')">Start Preparing</button>`;
+  }
+
+  if(order.status === "preparing"){
+    return `<button class='button' onclick="updateOrderStatus('${order.id}','ready_for_pickup')">Mark Ready</button>`;
+  }
+
+  return "";
+}
+
+async function loadOrders(){
+  msg("Loading orders...");
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,status,total_amount,created_at,customer_id")
+    .eq("restaurant_id", restaurantId)
+    .in("status", ["pending", "accepted", "preparing", "ready_for_pickup"])
+    .order("created_at", { ascending: false });
+
+  const container = document.getElementById("orders-list");
+  container.innerHTML = "";
+
+  if(error){
+    msg(error.message);
+    return;
+  }
+
+  if(!data.length){
+    container.innerHTML = "<p class='small'>No active orders.</p>";
+    msg("No active orders");
+    return;
+  }
+
+  data.forEach((order) => {
+    const div = document.createElement("div");
+    div.className = "list-item";
+    div.innerHTML = `
+      <b>Order ${order.id}</b><br>
+      <span class="badge status-${order.status}">${order.status}</span><br>
+      <span class="small">Total: ₹${Number(order.total_amount).toFixed(2)}</span><br>
+      <span class="small">Customer: ${order.customer_id}</span><br><br>
+      ${nextStatusActions(order)}
+    `;
+    container.appendChild(div);
+  });
+
+  msg("Orders loaded");
+}
+
+async function updateOrderStatus(orderId, newStatus){
+  const { error } = await supabaseClient
+    .from("orders")
+    .update({ status: newStatus })
+    .eq("id", orderId)
+    .eq("restaurant_id", restaurantId);
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  await loadOrders();
+}
+
+(async function init(){
+  const ok = await requireRestaurant();
+  if(!ok){ return; }
+  await loadOrders();
+})();
+</script>
 </body>
 </html>

@@ -2,18 +2,130 @@
 <html>
 <head>
   <title>Payment Verifier</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="../css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
 </head>
-
 <body>
+<div class="header">Payment Verifier</div>
+<div class="page">
+  <div class="card">
+    <div class="row">
+      <button class="button" onclick="loadPayments()">Refresh Payments</button>
+      <button class="button secondary" onclick="logout()">Logout</button>
+    </div>
+    <p id="verifier-msg" class="small"></p>
+  </div>
 
-<div class="header">
-Payment Verification
+  <div class="card">
+    <h3>Pending Wallet Verifications</h3>
+    <div id="payments-list"></div>
+  </div>
 </div>
 
-<div class="card">
-Verify payment proofs.
-</div>
+<script>
+let verifierUser = null;
 
+function setMessage(text){
+  document.getElementById("verifier-msg").innerText = text;
+}
+
+async function logout(){
+  await supabaseClient.auth.signOut();
+  window.location.href = "../";
+}
+
+async function requireVerifier(){
+  const { data } = await supabaseClient.auth.getSession();
+  if(!data.session){
+    window.location.href = "../";
+    return false;
+  }
+
+  verifierUser = data.session.user;
+
+  const { data: profile, error } = await supabaseClient
+    .from("users")
+    .select("role")
+    .eq("id", verifierUser.id)
+    .single();
+
+  if(error || profile.role !== "payment_verifier"){
+    alert("Only payment verifier role allowed.");
+    window.location.href = "../";
+    return false;
+  }
+
+  return true;
+}
+
+async function loadPayments(){
+  setMessage("Loading payment queue...");
+  const { data, error } = await supabaseClient
+    .from("payments")
+    .select("id,order_id,amount,method,status")
+    .eq("method", "Wallet")
+    .eq("status", "pending_verification")
+    .limit(50);
+
+  const container = document.getElementById("payments-list");
+  container.innerHTML = "";
+
+  if(error){
+    container.innerHTML = `<p class='small'>${error.message}</p>`;
+    return;
+  }
+
+  if(!data.length){
+    container.innerHTML = "<p class='small'>No pending wallet verifications.</p>";
+    setMessage("Queue empty");
+    return;
+  }
+
+  data.forEach((payment) => {
+    const div = document.createElement("div");
+    div.className = "list-item";
+    div.innerHTML = `
+      <b>Payment ${payment.id}</b><br>
+      <span class='small'>Order: ${payment.order_id}</span><br>
+      <span class='small'>Amount: ₹${Number(payment.amount).toFixed(2)}</span><br><br>
+      <button class='button' onclick="verifyPayment('${payment.id}','${payment.order_id}','approved')">Approve</button>
+      <button class='button secondary' onclick="verifyPayment('${payment.id}','${payment.order_id}','rejected')">Reject</button>
+    `;
+    container.appendChild(div);
+  });
+
+  setMessage("Pending payments loaded");
+}
+
+async function verifyPayment(paymentId, orderId, status){
+  const { error } = await supabaseClient
+    .from("payments")
+    .update({ status })
+    .eq("id", paymentId);
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
+  if(status === "rejected"){
+    await supabaseClient
+      .from("orders")
+      .update({ status: "cancelled" })
+      .eq("id", orderId)
+      .eq("status", "pending");
+  }
+
+  await loadPayments();
+}
+
+(async function init(){
+  const ok = await requireVerifier();
+  if(!ok){ return; }
+  await loadPayments();
+})();
+</script>
 </body>
 </html>
