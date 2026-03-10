@@ -70,7 +70,13 @@ function renderMetrics(orders){
 
 async function loadOrders(){
   msg("Loading orders...");
-  const { data, error } = await supabaseClient.from("orders").select("id,status,final_total,created_at,customer_id").eq("restaurant_id", restaurantId).in("status", ["pending", "accepted", "preparing", "ready_for_pickup"]).order("created_at", { ascending: false });
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,status,final_total,created_at,customer_id,payments!inner(status)")
+    .eq("restaurant_id", restaurantId)
+    .eq("payments.status", "approved")
+    .in("status", ["pending", "accepted", "preparing", "ready_for_pickup"])
+    .order("created_at", { ascending: false });
   const container = document.getElementById("orders-list");
   container.innerHTML = "";
   if(error){ msg(error.message); return; }

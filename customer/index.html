@@ -36,6 +36,18 @@
     <h3 class="card-title">Order Tracking</h3>
     <div id="tracking-list"></div>
   </div>
+
+  <div id="payment-proof-card" class="card" style="display:none;">
+    <h3 class="card-title">Complete Payment Verification</h3>
+    <p class="small">Scan the QR code, complete the payment, then upload proof to verify your order.</p>
+    <img id="payment-qr" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi%3A%2F%2Fpay%3Fpa%3Dfoodxpress%40upi%26pn%3DFoodXpress" alt="FoodXpress payment QR" style="width:200px;max-width:100%;border-radius:12px;border:1px solid #e7e7ec;">
+    <p id="pending-order-label" class="small" style="margin-top:10px;"></p>
+    <div class="row">
+      <input id="payment-proof-input" type="file" accept="image/*">
+      <button id="upload-proof-btn" class="button" onclick="uploadPaymentProof()">Upload Proof</button>
+    </div>
+    <p id="payment-proof-msg" class="small"></p>
+  </div>
 </div>
 
 <div id="cart-drawer" class="cart-drawer">
@@ -47,10 +59,7 @@
     <p class="small">Order value rules: ₹99 minimum, ₹1800 maximum.</p>
     <div id="cart-items"></div>
     <div class="row" style="margin-top:12px;">
-      <select id="payment-method">
-        <option value="COD">COD</option>
-        <option value="Wallet">Wallet</option>
-      </select>
+      <span class="small" style="padding:10px 0;flex:1;">Payment mode: QR transfer (verification required)</span>
       <button id="place-order-btn" class="button" onclick="placeOrder()">Place Order</button>
     </div>
     <p id="cart-total" style="font-weight:700"></p>
@@ -62,6 +71,9 @@ let activeUser = null;
 let allRestaurants = [];
 let selectedCategory = "All";
 let cart = [];
+let pendingVerification = null;
+
+const PAYMENT_PROOF_BUCKET = "payment-proofs";
 
 function setMessage(text){ document.getElementById("customer-msg").innerText = text; }
 function rupees(value){ return `₹${Number(value || 0).toFixed(2)}`; }
@@ -211,7 +223,6 @@ async function placeOrder(){
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   if(total < 99 || total > 1800){ alert("Order total must be between ₹99 and ₹1800."); return; }
 
-  const paymentMethod = document.getElementById("payment-method").value;
   const restaurantId = cart[0].restaurantId;
   if(cart.some((item) => item.restaurantId !== restaurantId)){
     alert("Please order from one restaurant at a time.");
@@ -232,18 +243,78 @@ async function placeOrder(){
   const { error: itemError } = await supabaseClient.from("order_items").insert(orderItems);
   if(itemError){ alert(`Order item failed: ${itemError.message}`); return; }
 
-  await supabaseClient.from("payments").insert({
+  const { error: paymentError } = await supabaseClient.from("payments").insert({
     order_id: order.id,
     amount: total,
-    method: paymentMethod,
-    status: paymentMethod === "COD" ? "pending_cod" : "pending_verification"
+    method: "Wallet",
+    status: "pending_verification"
   });
+
+  if(paymentError){ alert(`Payment row failed: ${paymentError.message}`); return; }
 
   cart = [];
   renderCart();
-  setMessage(`Order ${order.id} created successfully.`);
+  document.getElementById("payment-proof-msg").innerText = "";
+  setMessage(`Order ${order.id} created. Upload payment proof to continue.`);
   await loadTracking();
-  alert("Order placed successfully.");
+  alert("Order placed. Please upload payment proof.");
+}
+
+function renderPendingPaymentCard(){
+  const card = document.getElementById("payment-proof-card");
+  if(!pendingVerification){
+    card.style.display = "none";
+    return;
+  }
+
+  card.style.display = "block";
+  document.getElementById("pending-order-label").innerText = `Pending verification for Order ${pendingVerification.order_id} • ${rupees(pendingVerification.amount)}`;
+}
+
+async function uploadPaymentProof(){
+  if(!pendingVerification){ alert("No pending payment verification found."); return; }
+
+  const input = document.getElementById("payment-proof-input");
+  const file = input.files?.[0];
+  if(!file){ alert("Please select an image file first."); return; }
+
+  const fileExt = file.name.split(".").pop() || "jpg";
+  const filePath = `${activeUser.id}/${pendingVerification.order_id}-${Date.now()}.${fileExt}`;
+  const uploadBtn = document.getElementById("upload-proof-btn");
+  const msgEl = document.getElementById("payment-proof-msg");
+
+  uploadBtn.disabled = true;
+  msgEl.innerText = "Uploading proof...";
+
+  const { error: uploadError } = await supabaseClient.storage
+    .from(PAYMENT_PROOF_BUCKET)
+    .upload(filePath, file, { upsert: true });
+
+  if(uploadError){
+    uploadBtn.disabled = false;
+    msgEl.innerText = `Upload failed: ${uploadError.message}`;
+    return;
+  }
+
+  const { data: urlData } = supabaseClient.storage
+    .from(PAYMENT_PROOF_BUCKET)
+    .getPublicUrl(filePath);
+
+  const { error: updateError } = await supabaseClient
+    .from("payments")
+    .update({ proof_url: urlData.publicUrl, status: "pending_verification" })
+    .eq("id", pendingVerification.id);
+
+  uploadBtn.disabled = false;
+
+  if(updateError){
+    msgEl.innerText = `Unable to save proof URL: ${updateError.message}`;
+    return;
+  }
+
+  input.value = "";
+  msgEl.innerText = "Payment proof uploaded successfully. Awaiting verifier approval.";
+  await loadTracking();
 }
 
 function timelineSteps(status){
@@ -255,7 +326,7 @@ function timelineSteps(status){
 async function loadTracking(){
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,status,final_total,created_at")
+    .select("id,status,final_total,created_at,payments(id,status,proof_url,amount)")
     .eq("customer_id", activeUser.id)
     .order("created_at", { ascending: false })
     .limit(5);
@@ -265,12 +336,24 @@ async function loadTracking(){
   if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return; }
   if(!data.length){ container.innerHTML = "<p class='small'>No orders yet.</p>"; return; }
 
+  pendingVerification = null;
   data.forEach((order) => {
+    const payment = (order.payments && order.payments[0]) || null;
+    if(!pendingVerification && payment && payment.status === "pending_verification"){
+      pendingVerification = { ...payment, order_id: order.id };
+    }
+
+    const paymentBadge = payment
+      ? `<br><span class='small'>Payment: <span class='badge status-${payment.status}'>${payment.status}</span>${payment.proof_url ? " • proof uploaded" : " • proof missing"}</span>`
+      : "<br><span class='small'>Payment: not created</span>";
+
     const card = document.createElement("div");
     card.className = "list-item";
-    card.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>${rupees(order.final_total)}</span><div class='timeline'>${timelineSteps(order.status)}</div>`;
+    card.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>${rupees(order.final_total)}</span>${paymentBadge}<div class='timeline'>${timelineSteps(order.status)}</div>`;
     container.appendChild(card);
   });
+
+  renderPendingPaymentCard();
 }
 
 (async function init(){
