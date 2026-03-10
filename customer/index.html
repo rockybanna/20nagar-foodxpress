@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
 
 <title>Customer App</title>
@@ -7,7 +8,7 @@
 <link rel="stylesheet" href="../css/style.css">
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="../js/app.js"></script>
+<script src="../js/config.js"></script>
 
 </head>
 
@@ -25,38 +26,105 @@ Customer App
 
 </div>
 
+<div class="card">
+
+<h3>Menu</h3>
+
+<div id="menu-list"></div>
+
+</div>
+
 <script>
 
 async function loadRestaurants(){
 
-  const { data, error } = await supabaseClient
+  const { data } = await supabaseClient
   .from("restaurants")
   .select("*")
   .eq("is_online", true);
 
-  if(error){
-    console.log(error);
-    return;
-  }
-
   const container = document.getElementById("restaurant-list");
 
-  container.innerHTML = "";
+  container.innerHTML="";
 
   data.forEach(r => {
 
-    const div = document.createElement("div");
+    const div=document.createElement("div");
 
-    div.className = "card";
+    div.className="card";
 
-    div.innerHTML = `
-      <b>${r.name}</b><br>
-      Phone: ${r.phone}
+    div.innerHTML=`
+    <b>${r.name}</b><br>
+    Phone: ${r.phone}<br><br>
+    <button onclick="loadMenu('${r.id}')">View Menu</button>
     `;
 
     container.appendChild(div);
 
   });
+
+}
+
+async function loadMenu(restaurantId){
+
+  const { data } = await supabaseClient
+  .from("menu_items")
+  .select("*")
+  .eq("restaurant_id", restaurantId);
+
+  const container=document.getElementById("menu-list");
+
+  container.innerHTML="";
+
+  data.forEach(item =>{
+
+    const div=document.createElement("div");
+
+    div.className="card";
+
+    div.innerHTML=`
+    <b>${item.name}</b><br>
+    ₹${item.price}<br>
+    ${item.description}<br><br>
+    <button onclick="placeOrder('${item.id}',${item.price})">
+    Order
+    </button>
+    `;
+
+    container.appendChild(div);
+
+  });
+
+}
+
+async function placeOrder(itemId,price){
+
+  const { data:userData } =
+  await supabaseClient.auth.getUser();
+
+  const user=userData.user;
+
+  const { data:order } =
+  await supabaseClient
+  .from("orders")
+  .insert({
+    customer_id:user.id,
+    total_amount:price,
+    status:'pending'
+  })
+  .select()
+  .single();
+
+  await supabaseClient
+  .from("order_items")
+  .insert({
+    order_id:order.id,
+    menu_item_id:itemId,
+    quantity:1,
+    price:price
+  });
+
+  alert("Order placed!");
 
 }
 
