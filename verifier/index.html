@@ -64,8 +64,9 @@ async function loadPayments(){
   setMessage("Loading payment queue...");
   const { data, error } = await supabaseClient
     .from("payments")
-    .select("id,order_id,amount,method,status,proof_url")
+    .select("id,order_id,amount,method,status,proof_url,created_at")
     .eq("status", "pending_verification")
+    .order("created_at", { ascending: true })
     .limit(50);
 
   const container = document.getElementById("payments-list");
@@ -90,7 +91,8 @@ async function loadPayments(){
       <span class='small'>Order: ${payment.order_id}</span><br>
       <span class='small'>Amount: ₹${Number(payment.amount).toFixed(2)}</span><br>
       <span class='small'>Method: ${payment.method}</span><br>
-      <span class='small'>Proof: ${payment.proof_url ? `<a href='${payment.proof_url}' target='_blank'>View proof</a>` : 'Not uploaded'}</span><br><br>
+      <span class='small'>Proof: ${payment.proof_url ? `<a href='${payment.proof_url}' target='_blank'>Open proof</a>` : 'Not uploaded'}</span><br>
+      ${payment.proof_url ? `<img src='${payment.proof_url}' alt='Payment proof ${payment.id}' style='max-width:260px;margin-top:8px;border-radius:8px;border:1px solid #e7e7ec;'/>` : ''}<br><br>
       <button class='button' onclick="verifyPayment('${payment.id}','${payment.order_id}','approved')">Approve</button>
       <button class='button secondary' onclick="verifyPayment('${payment.id}','${payment.order_id}','rejected')">Reject</button>
     `;
@@ -109,21 +111,6 @@ async function verifyPayment(paymentId, orderId, status){
   if(error){
     alert(error.message);
     return;
-  }
-
-  if(status === "approved"){
-    await supabaseClient
-      .from("orders")
-      .update({ status: "pending" })
-      .eq("id", orderId)
-      .eq("status", "pending");
-  }
-
-  if(status === "rejected"){
-    await supabaseClient
-      .from("orders")
-      .update({ status: "cancelled" })
-      .eq("id", orderId);
   }
 
   await loadPayments();

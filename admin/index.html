@@ -91,7 +91,7 @@ async function loadDPs(){
 }
 
 async function loadOrders(){
-  const { data, error } = await supabaseClient.from("orders").select("id,status,final_total,customer_id,restaurant_id").order("id", { ascending: false }).limit(20);
+  const { data, error } = await supabaseClient.from("orders").select("id,status,total_amount,customer_id,restaurant_id").order("id", { ascending: false }).limit(20);
   const container = document.getElementById("orders-admin");
   container.innerHTML = "";
   if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
@@ -100,7 +100,7 @@ async function loadOrders(){
   data.forEach((order) => {
     const div = document.createElement("div");
     div.className = "list-item";
-    div.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>Amount: ₹${Number(order.final_total).toFixed(2)}</span>`;
+    div.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>Amount: ₹${Number(order.total_amount).toFixed(2)}</span>`;
     container.appendChild(div);
   });
   return data;
