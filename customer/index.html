@@ -231,12 +231,20 @@ async function placeOrder(){
   const { error: itemError } = await supabaseClient.from("order_items").insert(orderItems);
   if(itemError){ alert(`Order item failed: ${itemError.message}`); return; }
 
-  await supabaseClient.from("payments").insert({
+  const { error: paymentError } = await supabaseClient.from("payments").insert({
     order_id: order.id,
     amount: total,
     method: paymentMethod,
     status: paymentMethod === "COD" ? "pending_cod" : "pending_verification"
   });
+
+  if(paymentError){
+    // Best-effort rollback so we do not leave an order that cannot be paid/verified.
+    await supabaseClient.from("order_items").delete().eq("order_id", order.id);
+    await supabaseClient.from("orders").delete().eq("id", order.id);
+    alert(`Payment initialization failed: ${paymentError.message}. Please try placing your order again.`);
+    return;
+  }
 
   cart = [];
   renderCart();
