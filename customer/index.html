@@ -1,16 +1,12 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-
 <title>Customer App</title>
-
-<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link rel="stylesheet" href="../css/style.css">
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="../js/config.js"></script>
+<script src="../js/app.js"></script>
 
 </head>
 
@@ -21,42 +17,48 @@ Customer App
 </div>
 
 <div class="card">
+
 <h3>Restaurants</h3>
-<div id="restaurants"></div>
+
+<div id="restaurant-list"></div>
+
 </div>
 
 <script>
 
-const supabaseClient = window.supabase.createClient(
-SUPABASE_URL,
-SUPABASE_ANON_KEY
+const supabase = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY
 );
 
 async function loadRestaurants(){
 
-const { data, error } = await supabaseClient
-.from("restaurants")
-.select("id,name,is_online");
+  const { data, error } = await supabase
+  .from("restaurants")
+  .select("*")
+  .eq("is_online", true);
 
-if(error){
-console.log(error);
-return;
-}
+  if(error){
+    console.log(error);
+    return;
+  }
 
-const container = document.getElementById("restaurants");
-container.innerHTML = "";
+  const container = document.getElementById("restaurant-list");
+  container.innerHTML = "";
 
-data.forEach(r => {
+  data.forEach(r => {
 
-if(!r.is_online) return;
+    const div = document.createElement("div");
 
-const div = document.createElement("div");
-div.className="card";
-div.innerText=r.name;
+    div.className="card";
+    div.innerHTML = `
+      <b>${r.name}</b><br>
+      Phone: ${r.phone}
+    `;
 
-container.appendChild(div);
+    container.appendChild(div);
 
-});
+  });
 
 }
 
