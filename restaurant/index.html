@@ -91,7 +91,7 @@ async function loadOrders(){
   msg("Loading orders...");
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,status,total_amount,created_at,customer_id")
+    .select("id,status,final_total,created_at,customer_id")
     .eq("restaurant_id", restaurantId)
     .in("status", ["pending", "accepted", "preparing", "ready_for_pickup"])
     .order("created_at", { ascending: false });
@@ -116,7 +116,7 @@ async function loadOrders(){
     div.innerHTML = `
       <b>Order ${order.id}</b><br>
       <span class="badge status-${order.status}">${order.status}</span><br>
-      <span class="small">Total: ₹${Number(order.total_amount).toFixed(2)}</span><br>
+      <span class="small">Total: ₹${Number(order.final_total).toFixed(2)}</span><br>
       <span class="small">Customer: ${order.customer_id}</span><br><br>
       ${nextStatusActions(order)}
     `;

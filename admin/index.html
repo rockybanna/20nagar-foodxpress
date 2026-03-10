@@ -137,7 +137,7 @@ async function loadDPs(){
 async function loadOrders(){
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,status,total_amount,customer_id,restaurant_id")
+    .select("id,status,final_total,customer_id,restaurant_id")
     .order("id", { ascending: false })
     .limit(20);
 
@@ -160,7 +160,7 @@ async function loadOrders(){
     div.innerHTML = `
       <b>Order ${order.id}</b><br>
       <span class='badge status-${order.status}'>${order.status}</span><br>
-      <span class='small'>Amount: ₹${Number(order.total_amount).toFixed(2)}</span>
+      <span class='small'>Amount: ₹${Number(order.final_total).toFixed(2)}</span>
     `;
     container.appendChild(div);
   });

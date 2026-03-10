@@ -104,9 +104,9 @@ async function toggleAvailability(){
 async function loadReadyOrders(){
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,total_amount,status,delivery_partner_id")
+    .select("id,final_total,status,dp_id")
     .eq("status", "ready_for_pickup")
-    .is("delivery_partner_id", null)
+    .is("dp_id", null)
     .limit(20);
 
   const container = document.getElementById("ready-orders");
@@ -127,7 +127,7 @@ async function loadReadyOrders(){
     div.className = "list-item";
     div.innerHTML = `
       <b>Order ${order.id}</b><br>
-      <span class='small'>Total: ₹${Number(order.total_amount).toFixed(2)}</span><br>
+      <span class='small'>Total: ₹${Number(order.final_total).toFixed(2)}</span><br>
       <button class='button' onclick="acceptOrder('${order.id}')">Accept Delivery</button>
     `;
     container.appendChild(div);
@@ -137,8 +137,8 @@ async function loadReadyOrders(){
 async function loadMyOrders(){
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,status,total_amount")
-    .eq("delivery_partner_id", dpId)
+    .select("id,status,final_total")
+    .eq("dp_id", dpId)
     .in("status", ["picked_up", "ready_for_pickup"])
     .order("id", { ascending: false });
 
@@ -172,7 +172,7 @@ async function acceptOrder(orderId){
   const { count } = await supabaseClient
     .from("orders")
     .select("id", { count: "exact", head: true })
-    .eq("delivery_partner_id", dpId)
+    .eq("dp_id", dpId)
     .in("status", ["ready_for_pickup", "picked_up"]);
 
   if((count || 0) >= 2){
@@ -182,10 +182,10 @@ async function acceptOrder(orderId){
 
   const { error } = await supabaseClient
     .from("orders")
-    .update({ delivery_partner_id: dpId })
+    .update({ dp_id: dpId })
     .eq("id", orderId)
     .eq("status", "ready_for_pickup")
-    .is("delivery_partner_id", null);
+    .is("dp_id", null);
 
   if(error){
     alert(error.message);
@@ -200,7 +200,7 @@ async function pickupOrder(orderId){
     .from("orders")
     .update({ status: "picked_up" })
     .eq("id", orderId)
-    .eq("delivery_partner_id", dpId);
+    .eq("dp_id", dpId);
 
   if(error){
     alert(error.message);
@@ -209,7 +209,7 @@ async function pickupOrder(orderId){
 
   await supabaseClient.from("delivery_logs").insert({
     order_id: orderId,
-    delivery_partner_id: dpId,
+    dp_id: dpId,
     status: "picked_up"
   });
 
@@ -221,7 +221,7 @@ async function deliverOrder(orderId){
     .from("orders")
     .update({ status: "delivered" })
     .eq("id", orderId)
-    .eq("delivery_partner_id", dpId);
+    .eq("dp_id", dpId);
 
   if(error){
     alert(error.message);
@@ -230,7 +230,7 @@ async function deliverOrder(orderId){
 
   await supabaseClient.from("delivery_logs").insert({
     order_id: orderId,
-    delivery_partner_id: dpId,
+    dp_id: dpId,
     status: "delivered"
   });
 

@@ -193,10 +193,10 @@ async function placeOrder(){
     .insert({
       customer_id: activeUser.id,
       restaurant_id: selectedMenuItem.restaurantId,
-      total_amount: total,
+      final_total: total,
       status: "pending"
     })
-    .select("id,total_amount")
+    .select("id,final_total")
     .single();
 
   if(orderError){
