@@ -1,8 +1,17 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-  <title>Customer App</title>
-  <link rel="stylesheet" href="../css/style.css">
+
+<title>Customer App</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="stylesheet" href="../css/style.css">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/config.js"></script>
+
 </head>
 
 <body>
@@ -12,8 +21,48 @@ Customer App
 </div>
 
 <div class="card">
-Browse restaurants and place orders.
+<h3>Restaurants</h3>
+<div id="restaurants"></div>
 </div>
+
+<script>
+
+const supabaseClient = window.supabase.createClient(
+SUPABASE_URL,
+SUPABASE_ANON_KEY
+);
+
+async function loadRestaurants(){
+
+const { data, error } = await supabaseClient
+.from("restaurants")
+.select("id,name,is_online");
+
+if(error){
+console.log(error);
+return;
+}
+
+const container = document.getElementById("restaurants");
+container.innerHTML = "";
+
+data.forEach(r => {
+
+if(!r.is_online) return;
+
+const div = document.createElement("div");
+div.className="card";
+div.innerText=r.name;
+
+container.appendChild(div);
+
+});
+
+}
+
+loadRestaurants();
+
+</script>
 
 </body>
 </html>
