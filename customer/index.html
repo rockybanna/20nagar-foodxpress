@@ -1,245 +1,283 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Customer App</title>
+  <title>FoodXpress Customer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="../css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../js/config.js"></script>
 </head>
 <body>
-<div class="header">Customer App</div>
+<div class="header">FoodXpress • Discover</div>
 <div class="page">
-  <div class="card">
+  <div class="sticky-search">
     <div class="row">
+      <input id="search-input" placeholder="Search restaurant or cuisine..." oninput="renderRestaurants()">
+      <button class="button ghost" onclick="loadRestaurants()">Refresh</button>
+      <button class="button secondary" onclick="toggleCart()">Cart <span id="cart-count">(0)</span></button>
       <button class="button secondary" onclick="logout()">Logout</button>
-      <button class="button" onclick="loadRestaurants()">Refresh Restaurants</button>
     </div>
+    <div class="chips" id="category-chips"></div>
     <p id="customer-msg" class="small"></p>
   </div>
 
   <div class="card">
-    <h3>Online Restaurants</h3>
-    <div id="restaurant-list"></div>
+    <h3 class="card-title">Popular Near You</h3>
+    <div id="restaurant-list" class="restaurant-grid"></div>
   </div>
 
   <div class="card">
-    <h3>Menu</h3>
-    <div id="menu-list">Select restaurant to view menu.</div>
+    <h3 class="card-title">Menu</h3>
+    <p class="small">Choose quantity per item and add to cart.</p>
+    <div id="menu-list" class="menu-grid">Select a restaurant to view menu.</div>
   </div>
 
   <div class="card">
-    <h3>Create Order</h3>
+    <h3 class="card-title">Order Tracking</h3>
+    <div id="tracking-list"></div>
+  </div>
+</div>
+
+<div id="cart-drawer" class="cart-drawer">
+  <div class="cart-header">
+    <span>Your Cart</span>
+    <button class="button ghost" onclick="toggleCart()">Close</button>
+  </div>
+  <div class="cart-body">
     <p class="small">Order value rules: ₹99 minimum, ₹1800 maximum.</p>
-    <div class="row">
-      <div style="flex:1;min-width:220px;">
-        <label>Quantity</label>
-        <input id="qty" type="number" value="1" min="1">
-      </div>
-      <div style="flex:1;min-width:220px;">
-        <label>Payment Method</label>
-        <select id="payment-method">
-          <option value="COD">COD</option>
-          <option value="Wallet">Wallet</option>
-        </select>
-      </div>
+    <div id="cart-items"></div>
+    <div class="row" style="margin-top:12px;">
+      <select id="payment-method">
+        <option value="COD">COD</option>
+        <option value="Wallet">Wallet</option>
+      </select>
+      <button id="place-order-btn" class="button" onclick="placeOrder()">Place Order</button>
     </div>
-    <p id="selected-item" class="small">No menu item selected.</p>
-    <button class="button" id="place-order-btn" onclick="placeOrder()" disabled>Place Order</button>
+    <p id="cart-total" style="font-weight:700"></p>
   </div>
 </div>
 
 <script>
 let activeUser = null;
-let selectedMenuItem = null;
+let allRestaurants = [];
+let selectedCategory = "All";
+let cart = [];
 
-function setMessage(text){
-  document.getElementById("customer-msg").innerText = text;
-}
+function setMessage(text){ document.getElementById("customer-msg").innerText = text; }
+function rupees(value){ return `₹${Number(value || 0).toFixed(2)}`; }
 
-function rupees(value){
-  return `₹${Number(value).toFixed(2)}`;
+function pseudoMeta(name){
+  const seed = name.length;
+  const cuisines = ["North Indian", "Chinese", "Biryani", "Fast Food", "South Indian", "Desserts"];
+  return {
+    cuisine: cuisines[seed % cuisines.length],
+    rating: (3.6 + (seed % 13) / 10).toFixed(1),
+    time: `${20 + (seed % 20)} mins`
+  };
 }
 
 async function requireCustomer(){
   const { data } = await supabaseClient.auth.getSession();
-  if(!data.session){
-    window.location.href = "../";
-    return null;
-  }
-
+  if(!data.session){ window.location.href = "../"; return null; }
   const user = data.session.user;
-  const { data: profile, error } = await supabaseClient
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
+  const { data: profile, error } = await supabaseClient.from("users").select("role").eq("id", user.id).single();
   if(error || profile.role !== "customer"){
     alert("Only customer role allowed.");
     window.location.href = "../";
     return null;
   }
-
   activeUser = user;
   return user;
 }
 
-async function logout(){
-  await supabaseClient.auth.signOut();
-  window.location.href = "../";
+async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "../"; }
+
+function renderCategories(){
+  const chips = document.getElementById("category-chips");
+  const categories = ["All", ...new Set(allRestaurants.map((r) => pseudoMeta(r.name).cuisine))];
+  chips.innerHTML = "";
+  categories.forEach((cat) => {
+    const btn = document.createElement("button");
+    btn.className = `chip ${selectedCategory === cat ? "active" : ""}`;
+    btn.innerText = cat;
+    btn.onclick = () => { selectedCategory = cat; renderCategories(); renderRestaurants(); };
+    chips.appendChild(btn);
+  });
+}
+
+function renderRestaurants(){
+  const query = document.getElementById("search-input").value.toLowerCase();
+  const container = document.getElementById("restaurant-list");
+  container.innerHTML = "";
+
+  const filtered = allRestaurants.filter((restaurant) => {
+    const meta = pseudoMeta(restaurant.name);
+    const matchesQuery = restaurant.name.toLowerCase().includes(query) || meta.cuisine.toLowerCase().includes(query);
+    const matchesCategory = selectedCategory === "All" || meta.cuisine === selectedCategory;
+    return matchesQuery && matchesCategory;
+  });
+
+  if(!filtered.length){ container.innerHTML = "<p class='small'>No matching restaurants.</p>"; return; }
+
+  filtered.forEach((restaurant) => {
+    const meta = pseudoMeta(restaurant.name);
+    const div = document.createElement("div");
+    div.className = "card restaurant-card";
+    div.innerHTML = `
+      <div class="hero"></div>
+      <b>${restaurant.name}</b>
+      <div class="meta"><span>${meta.cuisine}</span><span>⭐ ${meta.rating}</span></div>
+      <div class="meta"><span>Delivery</span><span>${meta.time}</span></div>
+      <button class="button" style="margin-top:8px" onclick="loadMenu('${restaurant.id}','${restaurant.name.replace(/'/g, "\\'")}')">View Menu</button>
+    `;
+    container.appendChild(div);
+  });
 }
 
 async function loadRestaurants(){
   setMessage("Loading restaurants...");
-  const { data, error } = await supabaseClient
-    .from("restaurants")
-    .select("id,name,phone,is_online")
-    .eq("is_online", true)
-    .order("name", { ascending: true });
-
-  const container = document.getElementById("restaurant-list");
-  container.innerHTML = "";
-
-  if(error){
-    setMessage(error.message);
-    return;
-  }
-
-  if(!data.length){
-    container.innerHTML = "<p class='small'>No restaurant online right now.</p>";
-    setMessage("No online restaurants");
-    return;
-  }
-
-  data.forEach((restaurant) => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerHTML = `
-      <b>${restaurant.name}</b><br>
-      <span class="small">Phone: ${restaurant.phone || "N/A"}</span><br>
-      <button class="button" onclick="loadMenu('${restaurant.id}','${restaurant.name.replace(/'/g, "\\'")}')">View Menu</button>
-    `;
-    container.appendChild(div);
-  });
-
-  setMessage("Restaurants loaded");
+  const { data, error } = await supabaseClient.from("restaurants").select("id,name,phone,is_online").eq("is_online", true).order("name", { ascending: true });
+  if(error){ setMessage(error.message); return; }
+  allRestaurants = data || [];
+  renderCategories();
+  renderRestaurants();
+  setMessage(allRestaurants.length ? "Restaurants loaded" : "No online restaurants");
 }
 
 async function loadMenu(restaurantId, restaurantName){
   setMessage(`Loading menu for ${restaurantName}...`);
-
-  const { data, error } = await supabaseClient
-    .from("menu_items")
-    .select("id,restaurant_id,name,description,price")
-    .eq("restaurant_id", restaurantId)
-    .order("name", { ascending: true });
-
+  const { data, error } = await supabaseClient.from("menu_items").select("id,restaurant_id,name,description,price").eq("restaurant_id", restaurantId).order("name", { ascending: true });
   const container = document.getElementById("menu-list");
   container.innerHTML = "";
-
-  if(error){
-    setMessage(error.message);
-    return;
-  }
-
-  if(!data.length){
-    container.innerHTML = "<p class='small'>No items in this menu.</p>";
-    return;
-  }
+  if(error){ setMessage(error.message); return; }
+  if(!data.length){ container.innerHTML = "<p class='small'>No items in this menu.</p>"; return; }
 
   data.forEach((item) => {
     const div = document.createElement("div");
-    div.className = "list-item";
+    div.className = "card";
     div.innerHTML = `
-      <b>${item.name}</b> <span class="small">${rupees(item.price)}</span><br>
-      <span class="small">${item.description || "No description"}</span><br>
-      <button class="button" onclick="selectMenuItem('${item.id}','${item.name.replace(/'/g, "\\'")}',${item.price},'${item.restaurant_id}')">Select Item</button>
+      <b>${item.name}</b>
+      <p class="small">${item.description || "No description"}</p>
+      <div class="row">
+        <span style="font-weight:700">${rupees(item.price)}</span>
+        <input id="qty-${item.id}" type="number" value="1" min="1" style="max-width:80px">
+        <button class="button" onclick="addToCart('${item.id}','${item.name.replace(/'/g, "\\'")}',${item.price},'${item.restaurant_id}')">Add</button>
+      </div>
     `;
     container.appendChild(div);
   });
-
   setMessage(`Menu loaded for ${restaurantName}`);
 }
 
-function selectMenuItem(id, name, price, restaurantId){
-  selectedMenuItem = { id, name, price, restaurantId };
-  document.getElementById("selected-item").innerText = `Selected: ${name} (${rupees(price)})`;
-  document.getElementById("place-order-btn").disabled = false;
+function addToCart(id, name, price, restaurantId){
+  const qtyInput = document.getElementById(`qty-${id}`);
+  const quantity = Number(qtyInput?.value || 1);
+  if(quantity < 1){ alert("Quantity must be at least 1"); return; }
+
+  const existing = cart.find((item) => item.id === id);
+  if(existing){
+    existing.quantity += quantity;
+  } else {
+    cart.push({ id, name, price, quantity, restaurantId });
+  }
+  renderCart();
+}
+
+function removeFromCart(id){
+  cart = cart.filter((item) => item.id !== id);
+  renderCart();
+}
+
+function toggleCart(){ document.getElementById("cart-drawer").classList.toggle("open"); }
+
+function renderCart(){
+  const container = document.getElementById("cart-items");
+  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  document.getElementById("cart-total").innerText = `Total: ${rupees(total)}`;
+  document.getElementById("cart-count").innerText = `(${cart.length})`;
+  if(!cart.length){ container.innerHTML = "<p class='small'>Cart is empty.</p>"; return; }
+
+  container.innerHTML = "";
+  cart.forEach((item) => {
+    const div = document.createElement("div");
+    div.className = "list-item";
+    div.innerHTML = `<b>${item.name}</b><br><span class='small'>${item.quantity} × ${rupees(item.price)}</span><br><button class='button ghost' onclick="removeFromCart('${item.id}')">Remove</button>`;
+    container.appendChild(div);
+  });
 }
 
 async function placeOrder(){
-  if(!selectedMenuItem || !activeUser){
-    alert("Select an item first");
-    return;
-  }
-
-  const quantity = Number(document.getElementById("qty").value || 1);
-  if(quantity < 1){
-    alert("Quantity must be at least 1");
-    return;
-  }
-
-  const total = selectedMenuItem.price * quantity;
-  if(total < 99 || total > 1800){
-    alert("Order total must be between ₹99 and ₹1800.");
-    return;
-  }
+  if(!cart.length || !activeUser){ alert("Add items to cart first"); return; }
+  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  if(total < 99 || total > 1800){ alert("Order total must be between ₹99 and ₹1800."); return; }
 
   const paymentMethod = document.getElementById("payment-method").value;
-
-  const { data: order, error: orderError } = await supabaseClient
-    .from("orders")
-    .insert({
-      customer_id: activeUser.id,
-      restaurant_id: selectedMenuItem.restaurantId,
-      total_amount: total,
-      status: "pending"
-    })
-    .select("id,total_amount")
-    .single();
-
-  if(orderError){
-    alert(`Order failed: ${orderError.message}`);
+  const restaurantId = cart[0].restaurantId;
+  if(cart.some((item) => item.restaurantId !== restaurantId)){
+    alert("Please order from one restaurant at a time.");
     return;
   }
 
-  const { error: itemError } = await supabaseClient
-    .from("order_items")
-    .insert({
-      order_id: order.id,
-      menu_item_id: selectedMenuItem.id,
-      quantity,
-      price: selectedMenuItem.price
-    });
+  const { data: order, error: orderError } = await supabaseClient.from("orders").insert({
+    customer_id: activeUser.id,
+    restaurant_id: restaurantId,
+    total_amount: total,
+    status: "pending"
+  }).select("id").single();
 
-  if(itemError){
-    alert(`Order item failed: ${itemError.message}`);
-    return;
-  }
+  if(orderError){ alert(`Order failed: ${orderError.message}`); return; }
 
-  const { error: paymentError } = await supabaseClient
-    .from("payments")
-    .insert({
-      order_id: order.id,
-      amount: total,
-      method: paymentMethod,
-      status: paymentMethod === "COD" ? "pending_cod" : "pending_verification"
-    });
+  const orderItems = cart.map((item) => ({ order_id: order.id, menu_item_id: item.id, quantity: item.quantity, price: item.price }));
+  const { error: itemError } = await supabaseClient.from("order_items").insert(orderItems);
+  if(itemError){ alert(`Order item failed: ${itemError.message}`); return; }
 
-  if(paymentError){
-    setMessage(`Order created. Payment record issue: ${paymentError.message}`);
-  } else {
-    setMessage(`Order ${order.id} created successfully.`);
-  }
+  await supabaseClient.from("payments").insert({
+    order_id: order.id,
+    amount: total,
+    method: paymentMethod,
+    status: paymentMethod === "COD" ? "pending_cod" : "pending_verification"
+  });
 
+  cart = [];
+  renderCart();
+  setMessage(`Order ${order.id} created successfully.`);
+  await loadTracking();
   alert("Order placed successfully.");
+}
+
+function timelineSteps(status){
+  const steps = ["pending", "accepted", "preparing", "ready_for_pickup", "picked_up", "delivered"];
+  const idx = steps.indexOf(status);
+  return steps.map((step, i) => `<div class='timeline-step ${i <= idx ? "active" : ""}'>${step.replaceAll("_", " ")}</div>`).join("");
+}
+
+async function loadTracking(){
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,status,total_amount,created_at")
+    .eq("customer_id", activeUser.id)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  const container = document.getElementById("tracking-list");
+  container.innerHTML = "";
+  if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return; }
+  if(!data.length){ container.innerHTML = "<p class='small'>No orders yet.</p>"; return; }
+
+  data.forEach((order) => {
+    const card = document.createElement("div");
+    card.className = "list-item";
+    card.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>${rupees(order.total_amount)}</span><div class='timeline'>${timelineSteps(order.status)}</div>`;
+    container.appendChild(card);
+  });
 }
 
 (async function init(){
   const ok = await requireCustomer();
   if(!ok){ return; }
+  renderCart();
   await loadRestaurants();
+  await loadTracking();
 })();
 </script>
 </body>
