@@ -80,7 +80,7 @@ function renderMetrics(readyOrders, myOrders){
 async function loadReadyOrders(){
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,final_total,status,payments!inner(status)")
+    .select("id,total_amount,status,distance_km,payments!inner(status)")
     .eq("status", "ready_for_pickup")
     .eq("payments.status", "approved")
     .is("dp_id", null)
@@ -92,7 +92,7 @@ async function loadReadyOrders(){
   data.forEach((order) => {
     const div = document.createElement("div");
     div.className = "list-item";
-    div.innerHTML = `<b>Order ${order.id}</b><br><span class='small'>Total: ₹${Number(order.final_total).toFixed(2)}</span><br><button class='button' onclick="acceptOrder('${order.id}')">Accept Delivery</button>`;
+    div.innerHTML = `<b>Order ${order.id}</b><br><span class='small'>Total: ₹${Number(order.total_amount).toFixed(2)} • Distance: ${(Number(order.distance_km) || 0).toFixed(2)} km</span><br><button class='button' onclick="acceptOrder('${order.id}')">Accept Delivery</button>`;
     container.appendChild(div);
   });
   return data;
@@ -101,7 +101,7 @@ async function loadReadyOrders(){
 async function loadMyOrders(){
   const { data, error } = await supabaseClient
     .from("orders")
-    .select("id,status,final_total,payments!inner(status)")
+    .select("id,status,total_amount,payments!inner(status)")
     .eq("dp_id", dpId)
     .eq("payments.status", "approved")
     .in("status", ["picked_up", "ready_for_pickup"])
