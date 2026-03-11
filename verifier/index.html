@@ -113,6 +113,7 @@ async function verifyPayment(paymentId, orderId, status){
     return;
   }
 
+  await supabaseClient.from("orders").update({ status: status === "approved" ? "pending" : "cancelled" }).eq("id", orderId);
   await loadPayments();
 }
 

@@ -1,502 +1,286 @@
 <!DOCTYPE html>
-
 <html>
 <head>
 <title>FoodXpress Customer</title>
-
 <meta name="viewport" content="width=device-width, initial-scale=1">
-
 <link rel="stylesheet" href="../css/style.css">
-
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 <script src="../js/config.js"></script>
-
 </head>
-
 <body>
-
 <div class="header">FoodXpress • Discover</div>
-
 <div class="page">
+  <div class="sticky-search">
+    <div class="row">
+      <input id="search-input" placeholder="Search restaurant or cuisine..." oninput="renderRestaurants()">
+      <button class="button ghost" onclick="loadRestaurants()">Refresh</button>
+      <button class="button secondary" onclick="toggleCart()">Cart <span id="cart-count">(0)</span></button>
+      <button class="button secondary" onclick="logout()">Logout</button>
+    </div>
+    <p id="customer-msg" class="small"></p>
+  </div>
 
-<div class="sticky-search">
+  <div class="card">
+    <h3 class="card-title">Delivery Location</h3>
+    <div class="row">
+      <button class="button" onclick="useCurrentLocation()">Use Current Location</button>
+      <button class="button secondary" onclick="toggleMapPicker()">Pin Drop on Map</button>
+    </div>
+    <p id="location-label" class="small">Location not set.</p>
+    <div id="map-picker" style="height:300px;border-radius:12px;display:none;margin-top:10px;border:1px solid #e7e7ec"></div>
+  </div>
 
-<div class="row">
-<input id="search-input" placeholder="Search restaurant or cuisine..." oninput="renderRestaurants()">
+  <div class="card"><h3 class="card-title">Popular Near You</h3><div id="restaurant-list" class="restaurant-grid"></div></div>
+  <div class="card"><h3 class="card-title">Menu</h3><p class="small">Single cart rule: one order = one restaurant.</p><div id="menu-list" class="menu-grid">Select a restaurant to view menu.</div></div>
+  <div class="card"><h3 class="card-title">Order Tracking</h3><div id="tracking-list"></div></div>
 
-<button class="button ghost" onclick="loadRestaurants()">Refresh</button>
-
-<button class="button secondary" onclick="toggleCart()">
-Cart <span id="cart-count">(0)</span>
-</button>
-
-<button class="button secondary" onclick="logout()">Logout</button>
-
-</div>
-
-<div class="chips" id="category-chips"></div>
-
-<p id="customer-msg" class="small"></p>
-
-</div>
-
-<div class="card">
-
-<h3 class="card-title">Delivery Location</h3>
-
-<p class="small">
-Set location using GPS or pin-drop.
-Saved to customers.latitude and customers.longitude.
-</p>
-
-<div class="row">
-<button class="button" onclick="useCurrentLocation()">Use Current Location</button>
-<button class="button secondary" onclick="toggleMapPicker()">Pin Drop on Map</button>
-</div>
-
-<p id="location-label" class="small">Location not set.</p>
-
-<div id="map-picker" style="height:300px;border-radius:12px;display:none;margin-top:10px;border:1px solid #e7e7ec"></div>
-
-</div>
-
-<div class="card">
-<h3 class="card-title">Popular Near You</h3>
-<div id="restaurant-list" class="restaurant-grid"></div>
-</div>
-
-<div class="card">
-<h3 class="card-title">Menu</h3>
-<p class="small">Choose quantity per item and add to cart.</p>
-<div id="menu-list" class="menu-grid">
-Select a restaurant to view menu.
-</div>
-</div>
-
-<div class="card">
-<h3 class="card-title">Order Tracking</h3>
-<div id="tracking-list"></div>
-</div>
-
-<div id="payment-proof-card" class="card" style="display:none">
-
-<h3 class="card-title">Complete Payment</h3>
-
-<p class="small">
-Scan the QR code and complete payment.
-Then upload screenshot proof.
-</p>
-
-<img src="https://uouwizrknwrqqynodplv.supabase.co/storage/v1/object/public/company_assets/payment_qr.jpg"
-style="width:220px;border-radius:10px;border:1px solid #ddd">
-
-<p id="pending-order-label" class="small"></p>
-
-<div class="row">
-<input id="payment-proof-input" type="file" accept="image/*">
-<button class="button" onclick="uploadPaymentProof()">Upload Proof</button>
-</div>
-
-<p id="payment-proof-msg" class="small"></p>
-
-</div>
-
+  <div id="payment-proof-card" class="card" style="display:none">
+    <h3 class="card-title">Complete Payment</h3>
+    <img src="https://uouwizrknwrqqynodplv.supabase.co/storage/v1/object/public/company_assets/payment_qr.jpg" style="width:220px;border-radius:10px;border:1px solid #ddd">
+    <p id="pending-order-label" class="small"></p>
+    <div class="row"><input id="payment-proof-input" type="file" accept="image/*"><button class="button" onclick="uploadPaymentProof()">Upload Proof</button></div>
+    <p id="payment-proof-msg" class="small"></p>
+  </div>
 </div>
 
 <div id="cart-drawer" class="cart-drawer">
-
-<div class="cart-header">
-<span>Your Cart</span>
-<button class="button ghost" onclick="toggleCart()">Close</button>
-</div>
-
-<div class="cart-body">
-
-<p class="small">Order value rules: ₹99 minimum, ₹1800 maximum.</p>
-
-<div id="cart-items"></div>
-
-<div class="row" style="margin-top:12px">
-<span class="small" style="flex:1">Payment mode: QR transfer</span>
-<button class="button" onclick="placeOrder()">Place Order</button>
-</div>
-
-<p id="cart-total" style="font-weight:700"></p>
-
-</div>
-
+  <div class="cart-header"><span>Your Cart</span><button class="button ghost" onclick="toggleCart()">Close</button></div>
+  <div class="cart-body">
+    <p class="small">Order value rules: ₹99 minimum, ₹1800 maximum.</p>
+    <p id="cart-restaurant-label" class="small"></p>
+    <div id="cart-items"></div>
+    <div class="row" style="margin-top:12px"><span class="small" style="flex:1">Payment mode: QR transfer</span><button class="button" id="place-order-btn" onclick="placeOrder()">Place Order</button></div>
+    <p id="cart-total" style="font-weight:700"></p>
+  </div>
 </div>
 
 <script>
+let activeUser = null;
+let allRestaurants = [];
+let cart = [];
+let pendingVerification = null;
+let customerLocation = null;
+let map = null;
+let marker = null;
+let placingOrder = false;
+const PAYMENT_PROOF_BUCKET = "payment_proofs";
 
-
-let activeUser = null
-let allRestaurants = []
-let selectedCategory = "All"
-let cart = []
-let pendingVerification = null
-
-let customerLocation = null
-let map = null
-let marker = null
-
-const PAYMENT_PROOF_BUCKET = "payment_proofs"
-
-
-
-function setMessage(text){
-document.getElementById("customer-msg").innerText = text
-}
-
-function rupees(v){
-return `₹${Number(v || 0).toFixed(2)}`
-}
-
-
+function setMessage(text){ document.getElementById("customer-msg").innerText = text; }
+function rupees(v){ return `₹${Number(v || 0).toFixed(2)}`; }
+function escapeHTML(t){ return String(t || "").replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 
 async function requireCustomer(){
+  const { data } = await supabaseClient.auth.getSession();
+  if(!data.session){ window.location.href = "../"; return null; }
+  const user = data.session.user;
+  const { data: profile } = await supabaseClient.from("users").select("role").eq("id", user.id).single();
+  if(!profile || profile.role !== "customer"){ alert("Customer role required"); window.location.href = "../"; return null; }
+  activeUser = user;
 
-const { data } = await supabaseClient.auth.getSession()
-
-if(!data.session){
-window.location.href = "../"
-return null
+  const { data: customer } = await supabaseClient.from("customers").select("latitude,longitude").eq("id", user.id).maybeSingle();
+  if(customer?.latitude && customer?.longitude){
+    customerLocation = { latitude: Number(customer.latitude), longitude: Number(customer.longitude) };
+    document.getElementById("location-label").innerText = `Lat ${customerLocation.latitude.toFixed(5)}, Lng ${customerLocation.longitude.toFixed(5)}`;
+  }
+  return user;
 }
 
-const user = data.session.user
-
-const { data:profile } =
-await supabaseClient
-.from("users")
-.select("role")
-.eq("id",user.id)
-.single()
-
-if(profile.role !== "customer"){
-alert("Customer role required")
-window.location.href="../"
-return null
-}
-
-activeUser = user
-return user
-
-}
-
-
-
-async function logout(){
-await supabaseClient.auth.signOut()
-window.location.href="../"
-}
-
-
+async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "../"; }
 
 async function loadRestaurants(){
-
-setMessage("Loading restaurants...")
-
-const { data } =
-await supabaseClient
-.from("restaurants")
-.select("id,name,is_online")
-.eq("is_online",true)
-
-allRestaurants = data || []
-
-renderRestaurants()
-
-setMessage("Restaurants loaded")
-
+  setMessage("Loading restaurants...");
+  const { data } = await supabaseClient.from("restaurants").select("id,name,is_online").eq("is_online", true).order("name", { ascending: true });
+  const seen = new Set();
+  allRestaurants = (data || []).filter((r) => {
+    if(seen.has(r.id)){ return false; }
+    seen.add(r.id);
+    return true;
+  });
+  renderRestaurants();
+  setMessage(`Loaded ${allRestaurants.length} restaurants`);
 }
-
-
 
 function renderRestaurants(){
-
-const container = document.getElementById("restaurant-list")
-container.innerHTML=""
-
-allRestaurants.forEach(r=>{
-
-const div = document.createElement("div")
-
-div.className="card restaurant-card"
-
-div.innerHTML = `
-<b>${r.name}</b>
-
-<button class="button"
-onclick="loadMenu('${r.id}','${r.name}')">
-View Menu
-</button>
-`
-
-container.appendChild(div)
-
-})
-
+  const q = document.getElementById("search-input").value.trim().toLowerCase();
+  const filtered = allRestaurants.filter((r) => r.name.toLowerCase().includes(q));
+  const container = document.getElementById("restaurant-list");
+  container.innerHTML = "";
+  if(!filtered.length){ container.innerHTML = "<p class='small'>No restaurants found.</p>"; return; }
+  filtered.forEach((r) => {
+    const div = document.createElement("div");
+    div.className = "card restaurant-card";
+    div.innerHTML = `<b>${escapeHTML(r.name)}</b><button class='button' onclick="loadMenu('${r.id}','${escapeHTML(r.name)}')">View Menu</button>`;
+    container.appendChild(div);
+  });
 }
 
-
-
-async function loadMenu(restaurantId,restaurantName){
-
-setMessage(`Loading menu for ${restaurantName}`)
-
-const { data } =
-await supabaseClient
-.from("menu_items")
-.select("id,restaurant_id,name,description,price")
-.eq("restaurant_id",restaurantId)
-
-const container=document.getElementById("menu-list")
-
-container.innerHTML=""
-
-data.forEach(item=>{
-
-const div=document.createElement("div")
-
-div.className="card"
-
-div.innerHTML=`
-
-<b>${item.name}</b>
-
-<p class="small">${item.description||""}</p>
-
-<div class="row">
-
-<span style="font-weight:700">${rupees(item.price)}</span>
-
-<input id="qty-${item.id}" type="number" value="1" min="1" style="width:70px">
-
-<button class="button"
-onclick="addToCart('${item.id}','${item.name}',${item.price},'${item.restaurant_id}')">
-Add
-</button>
-
-</div>
-`
-
-container.appendChild(div)
-
-})
-
+async function loadMenu(restaurantId, restaurantName){
+  setMessage(`Loading menu for ${restaurantName}`);
+  const { data } = await supabaseClient.from("menu_items").select("id,restaurant_id,name,description,price").eq("restaurant_id", restaurantId).order("name", { ascending: true });
+  const container = document.getElementById("menu-list");
+  container.innerHTML = "";
+  if(!(data || []).length){ container.innerHTML = "<p class='small'>No menu items.</p>"; return; }
+  data.forEach((item) => {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<b>${escapeHTML(item.name)}</b><p class='small'>${escapeHTML(item.description || "")}</p><div class='row'><span style='font-weight:700'>${rupees(item.price)}</span><input id='qty-${item.id}' type='number' value='1' min='1' style='width:70px'><button class='button' onclick="addToCart('${item.id}','${escapeHTML(item.name)}',${Number(item.price)},'${item.restaurant_id}','${escapeHTML(restaurantName)}')">Add</button></div>`;
+    container.appendChild(div);
+  });
 }
 
-
-
-function addToCart(id,name,price,restaurantId){
-
-const qty = Number(document.getElementById(`qty-${id}`).value)
-
-const existing = cart.find(i=>i.id===id)
-
-if(existing){
-existing.quantity += qty
-}else{
-cart.push({id,name,price,quantity:qty,restaurantId})
+function addToCart(id, name, price, restaurantId, restaurantName){
+  const qty = Math.max(1, Number(document.getElementById(`qty-${id}`).value || 1));
+  if(cart.length && cart[0].restaurantId !== restaurantId){
+    alert(`Single restaurant per order. Clear cart before adding from ${restaurantName}.`);
+    return;
+  }
+  const existing = cart.find((i) => i.id === id);
+  if(existing){ existing.quantity += qty; }
+  else { cart.push({ id, name, price, quantity: qty, restaurantId, restaurantName }); }
+  renderCart();
 }
-
-renderCart()
-
-}
-
-
 
 function renderCart(){
-
-const container=document.getElementById("cart-items")
-
-const total=cart.reduce((s,i)=>s+i.price*i.quantity,0)
-
-document.getElementById("cart-total").innerText=`Total: ${rupees(total)}`
-
-document.getElementById("cart-count").innerText=`(${cart.length})`
-
-container.innerHTML=""
-
-cart.forEach(i=>{
-
-const div=document.createElement("div")
-
-div.className="list-item"
-
-div.innerHTML=`
-<b>${i.name}</b>
-<br>
-<span class="small">${i.quantity} × ${rupees(i.price)}</span>
-`
-
-container.appendChild(div)
-
-})
-
+  const container = document.getElementById("cart-items");
+  const total = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  document.getElementById("cart-total").innerText = `Total: ${rupees(total)}`;
+  document.getElementById("cart-count").innerText = `(${cart.reduce((s, i) => s + i.quantity, 0)})`;
+  document.getElementById("cart-restaurant-label").innerText = cart.length ? `Restaurant: ${cart[0].restaurantName}` : "";
+  container.innerHTML = "";
+  cart.forEach((i) => {
+    const div = document.createElement("div");
+    div.className = "list-item";
+    div.innerHTML = `<b>${escapeHTML(i.name)}</b><br><span class='small'>${i.quantity} × ${rupees(i.price)}</span>`;
+    container.appendChild(div);
+  });
 }
 
+function toggleCart(){ document.getElementById("cart-drawer").classList.toggle("open"); }
 
-
-function toggleCart(){
-document.getElementById("cart-drawer").classList.toggle("open")
+async function saveCustomerLocation(latitude, longitude){
+  customerLocation = { latitude, longitude };
+  document.getElementById("location-label").innerText = `Lat ${latitude.toFixed(5)}, Lng ${longitude.toFixed(5)}`;
+  await supabaseClient.from("customers").upsert({ id: activeUser.id, latitude, longitude });
 }
 
+async function useCurrentLocation(){
+  if(!navigator.geolocation){ alert("Geolocation not supported"); return; }
+  setMessage("Reading current location...");
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    await saveCustomerLocation(pos.coords.latitude, pos.coords.longitude);
+    setMessage("Location saved.");
+  }, (err) => {
+    setMessage(`Location failed: ${err.message}`);
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
 
+function toggleMapPicker(){
+  const mapEl = document.getElementById("map-picker");
+  const opening = mapEl.style.display === "none";
+  mapEl.style.display = opening ? "block" : "none";
+  if(!opening){ return; }
+
+  const fallback = customerLocation || { latitude: 17.3850, longitude: 78.4867 };
+  if(!map){
+    map = L.map("map-picker").setView([fallback.latitude, fallback.longitude], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
+    marker = L.marker([fallback.latitude, fallback.longitude], { draggable: true }).addTo(map);
+    marker.on("dragend", async () => {
+      const ll = marker.getLatLng();
+      await saveCustomerLocation(ll.lat, ll.lng);
+    });
+    map.on("click", async (e) => {
+      marker.setLatLng(e.latlng);
+      await saveCustomerLocation(e.latlng.lat, e.latlng.lng);
+    });
+  }
+  setTimeout(() => map.invalidateSize(), 60);
+}
+
+function makeOrderCode(){ return `FX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`; }
 
 async function placeOrder(){
+  if(placingOrder){ return; }
+  if(!cart.length){ alert("Add items first"); return; }
+  if(!customerLocation){ alert("Set delivery location"); return; }
+  const total = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  if(total < 99 || total > 1800){ alert("Order must be ₹99-₹1800"); return; }
+  if(new Set(cart.map((i) => i.restaurantId)).size > 1){ alert("Only one restaurant per cart."); return; }
 
-if(!cart.length){ alert("Add items first"); return }
+  placingOrder = true;
+  document.getElementById("place-order-btn").disabled = true;
 
-if(!customerLocation){ alert("Set delivery location"); return }
+  const restaurantId = cart[0].restaurantId;
+  const orderCode = makeOrderCode();
 
-const total = cart.reduce((s,i)=>s+i.price*i.quantity,0)
+  const { data: order, error } = await supabaseClient.from("orders").insert({
+    customer_id: activeUser.id,
+    restaurant_id: restaurantId,
+    total_amount: total,
+    status: "pending",
+    customer_latitude: customerLocation.latitude,
+    customer_longitude: customerLocation.longitude,
+    order_code: orderCode
+  }).select("id").single();
 
-if(total<99||total>1800){
-alert("Order must be ₹99-₹1800")
-return
+  if(error){
+    const fallback = await supabaseClient.from("orders").insert({ customer_id: activeUser.id, restaurant_id: restaurantId, total_amount: total, status: "pending" }).select("id").single();
+    if(fallback.error){ alert(fallback.error.message); placingOrder = false; document.getElementById("place-order-btn").disabled = false; return; }
+    order.id = fallback.data.id;
+  }
+
+  const items = cart.map((i) => ({ order_id: order.id, menu_item_id: i.id, quantity: i.quantity, price: i.price }));
+  await supabaseClient.from("order_items").insert(items);
+  await supabaseClient.from("payments").insert({ order_id: order.id, amount: total, method: "qr_transfer", status: "pending" });
+
+  cart = [];
+  renderCart();
+  setMessage(`Order ${order.id} (${orderCode}) created`);
+  placingOrder = false;
+  document.getElementById("place-order-btn").disabled = false;
+  await loadTracking();
 }
-
-const restaurantId=cart[0].restaurantId
-
-const { data:order,error } =
-await supabaseClient
-.from("orders")
-.insert({
-customer_id:activeUser.id,
-restaurant_id:restaurantId,
-total_amount:total,
-status:"pending"
-})
-.select("id,distance_km")
-.single()
-
-if(error){
-alert(error.message)
-return
-}
-
-const items=cart.map(i=>({
-order_id:order.id,
-menu_item_id:i.id,
-quantity:i.quantity,
-price:i.price
-}))
-
-await supabaseClient.from("order_items").insert(items)
-
-cart=[]
-
-renderCart()
-
-setMessage(`Order ${order.id} created`)
-
-await loadTracking()
-
-}
-
-
 
 async function uploadPaymentProof(){
-
-if(!pendingVerification){
-alert("No pending payment")
-return
+  if(!pendingVerification){ alert("No pending payment"); return; }
+  const file = document.getElementById("payment-proof-input").files[0];
+  if(!file){ alert("Select image first"); return; }
+  const path = `${activeUser.id}/${pendingVerification.order_id}-${Date.now()}.jpg`;
+  await supabaseClient.storage.from(PAYMENT_PROOF_BUCKET).upload(path, file, { upsert: true });
+  const { data: urlData } = supabaseClient.storage.from(PAYMENT_PROOF_BUCKET).getPublicUrl(path);
+  await supabaseClient.from("payments").update({ proof_url: urlData.publicUrl, status: "pending_verification" }).eq("id", pendingVerification.id);
+  document.getElementById("payment-proof-msg").innerText = "Proof uploaded.";
+  await loadTracking();
 }
-
-const file =
-document.getElementById("payment-proof-input").files[0]
-
-if(!file){
-alert("Select image first")
-return
-}
-
-const path=
-`${activeUser.id}/${pendingVerification.order_id}-${Date.now()}.jpg`
-
-await supabaseClient.storage
-.from(PAYMENT_PROOF_BUCKET)
-.upload(path,file,{upsert:true})
-
-const { data:urlData } =
-supabaseClient.storage
-.from(PAYMENT_PROOF_BUCKET)
-.getPublicUrl(path)
-
-await supabaseClient
-.from("payments")
-.update({
-proof_url:urlData.publicUrl,
-status:"pending_verification"
-})
-.eq("id",pendingVerification.id)
-
-alert("Proof uploaded")
-
-await loadTracking()
-
-}
-
-
 
 async function loadTracking(){
+  const { data } = await supabaseClient.from("orders").select("id,status,total_amount,created_at,payments(id,status)").eq("customer_id", activeUser.id).order("created_at", { ascending: false });
+  const container = document.getElementById("tracking-list");
+  container.innerHTML = "";
+  pendingVerification = null;
 
-const { data } =
-await supabaseClient
-.from("orders")
-.select("id,status,total_amount,created_at,payments(id,status)")
-.eq("customer_id",activeUser.id)
-.order("created_at",{ascending:false})
+  (data || []).forEach((order) => {
+    const div = document.createElement("div");
+    const pay = (order.payments || [])[0];
+    div.className = "list-item";
+    div.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>${rupees(order.total_amount)}${pay ? ` • Payment: ${pay.status}` : ""}</span>`;
+    container.appendChild(div);
+    if(pay && ["pending", "rejected"].includes(pay.status) && !pendingVerification){ pendingVerification = { id: pay.id, order_id: order.id }; }
+  });
 
-const container=document.getElementById("tracking-list")
-
-container.innerHTML=""
-
-data.forEach(order=>{
-
-const card=document.createElement("div")
-
-card.className="list-item"
-
-card.innerHTML=`
-<b>Order ${order.id}</b>
-<span class='badge status-${order.status}'>
-${order.status}
-</span>
-<br>
-<span class="small">${rupees(order.total_amount)}</span>
-`
-
-container.appendChild(card)
-
-})
-
+  document.getElementById("payment-proof-card").style.display = pendingVerification ? "block" : "none";
+  document.getElementById("pending-order-label").innerText = pendingVerification ? `Pending payment for Order ${pendingVerification.order_id}` : "";
 }
 
-
-
 (async function init(){
-
-const ok=await requireCustomer()
-
-if(!ok)return
-
-renderCart()
-
-await loadRestaurants()
-
-await loadTracking()
-
-})()
-
-
+  const ok = await requireCustomer();
+  if(!ok) return;
+  renderCart();
+  await loadRestaurants();
+  await loadTracking();
+})();
 </script>
-
 </body>
 </html>
