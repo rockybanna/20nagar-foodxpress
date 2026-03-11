@@ -10,27 +10,19 @@
 <body>
 <div class="header">Admin Dashboard</div>
 <div class="page grid">
-  <div class="card">
-    <div class="row">
-      <button class="button" onclick="loadDashboard()">Refresh</button>
-      <button class="button secondary" onclick="logout()">Logout</button>
-    </div>
-    <p id="admin-msg" class="small"></p>
-  </div>
-
+  <div class="card"><div class="row"><button class="button" onclick="loadDashboard()">Refresh</button><button class="button secondary" onclick="logout()">Logout</button></div><p id="admin-msg" class="small"></p></div>
   <div id="admin-metrics" class="dashboard-grid"></div>
-
   <div class="grid cols-2">
     <div class="card"><h3 class="card-title">Restaurant Ops</h3><div id="restaurants-admin"></div></div>
     <div class="card"><h3 class="card-title">Delivery Partner Ops</h3><div id="dp-admin"></div></div>
   </div>
-
-  <div class="card"><h3 class="card-title">Recent Orders</h3><div id="orders-admin"></div></div>
+  <div class="grid cols-2">
+    <div class="card"><h3 class="card-title">Recent Orders</h3><div id="orders-admin"></div></div>
+    <div class="card"><h3 class="card-title">Accounting Clean</h3><div id="accounting-admin"></div></div>
+  </div>
 </div>
-
 <script>
 let adminUser = null;
-
 function setAdminMsg(text){ document.getElementById("admin-msg").innerText = text; }
 async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "../"; }
 
@@ -39,11 +31,7 @@ async function requireAdmin(){
   if(!data.session){ window.location.href = "../"; return false; }
   adminUser = data.session.user;
   const { data: profile, error } = await supabaseClient.from("users").select("role").eq("id", adminUser.id).single();
-  if(error || profile.role !== "admin"){
-    alert("Only admin role allowed.");
-    window.location.href = "../";
-    return false;
-  }
+  if(error || profile.role !== "admin"){ alert("Only admin role allowed."); window.location.href = "../"; return false; }
   return true;
 }
 
@@ -51,11 +39,7 @@ function renderAdminMetrics(restaurants, dps, orders){
   const onlineRestaurants = restaurants.filter((r) => r.is_online).length;
   const onlineDps = dps.filter((dp) => dp.status === "online").length;
   const activeOrders = orders.filter((o) => !["delivered", "cancelled"].includes(o.status)).length;
-  document.getElementById("admin-metrics").innerHTML = `
-    <div class='metric'><h4>Restaurants Online</h4><p>${onlineRestaurants}/${restaurants.length}</p></div>
-    <div class='metric'><h4>Partners Online</h4><p>${onlineDps}/${dps.length}</p></div>
-    <div class='metric'><h4>Active Orders</h4><p>${activeOrders}</p></div>
-  `;
+  document.getElementById("admin-metrics").innerHTML = `<div class='metric'><h4>Restaurants Online</h4><p>${onlineRestaurants}/${restaurants.length}</p></div><div class='metric'><h4>Partners Online</h4><p>${onlineDps}/${dps.length}</p></div><div class='metric'><h4>Active Orders</h4><p>${activeOrders}</p></div>`;
 }
 
 async function loadRestaurants(){
@@ -63,15 +47,13 @@ async function loadRestaurants(){
   const container = document.getElementById("restaurants-admin");
   container.innerHTML = "";
   if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
-  if(!data.length){ container.innerHTML = "<p class='small'>No restaurants found.</p>"; return []; }
-
-  data.forEach((r) => {
+  (data || []).forEach((r) => {
     const div = document.createElement("div");
     div.className = "list-item";
     div.innerHTML = `<b>${r.name}</b><br><span class='badge'>${r.is_online ? "online" : "offline"}</span><br><button class='button' onclick="setRestaurantStatus('${r.id}', ${!r.is_online})">Set ${r.is_online ? "Offline" : "Online"}</button>`;
     container.appendChild(div);
   });
-  return data;
+  return data || [];
 }
 
 async function loadDPs(){
@@ -79,31 +61,39 @@ async function loadDPs(){
   const container = document.getElementById("dp-admin");
   container.innerHTML = "";
   if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
-  if(!data.length){ container.innerHTML = "<p class='small'>No delivery partners found.</p>"; return []; }
-
-  data.forEach((dp) => {
+  (data || []).forEach((dp) => {
     const div = document.createElement("div");
     div.className = "list-item";
     div.innerHTML = `<b>${dp.name || dp.id}</b><br><span class='badge'>${dp.status || "offline"}</span><br><button class='button' onclick="setDpStatus('${dp.id}','online')">Online</button> <button class='button secondary' onclick="setDpStatus('${dp.id}','offline')">Offline</button>`;
     container.appendChild(div);
   });
-  return data;
+  return data || [];
 }
 
 async function loadOrders(){
-  const { data, error } = await supabaseClient.from("orders").select("id,status,total_amount,customer_id,restaurant_id").order("id", { ascending: false }).limit(20);
+  const { data, error } = await supabaseClient.from("orders").select("id,status,total_amount,customer_id,restaurant_id").order("id", { ascending: false }).limit(30);
   const container = document.getElementById("orders-admin");
   container.innerHTML = "";
   if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
-  if(!data.length){ container.innerHTML = "<p class='small'>No orders yet.</p>"; return []; }
-
-  data.forEach((order) => {
+  (data || []).forEach((order) => {
     const div = document.createElement("div");
     div.className = "list-item";
     div.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>Amount: ₹${Number(order.total_amount).toFixed(2)}</span>`;
     container.appendChild(div);
   });
-  return data;
+  return data || [];
+}
+
+async function loadAccounting(){
+  const [rs, ds] = await Promise.all([
+    supabaseClient.from("restaurant_settlements").select("net_amount,status"),
+    supabaseClient.from("dp_settlements").select("amount,status")
+  ]);
+  const restTotal = (rs.data || []).reduce((s, x) => s + Number(x.net_amount || 0), 0);
+  const dpTotal = (ds.data || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const pendingRest = (rs.data || []).filter((x) => x.status !== "paid").reduce((s, x) => s + Number(x.net_amount || 0), 0);
+  const pendingDp = (ds.data || []).filter((x) => x.status !== "paid").reduce((s, x) => s + Number(x.amount || 0), 0);
+  document.getElementById("accounting-admin").innerHTML = `<div class='list-item'><b>Restaurant Settlements</b><br><span class='small'>₹${restTotal.toFixed(2)} total • ₹${pendingRest.toFixed(2)} pending</span></div><div class='list-item'><b>Delivery Settlements</b><br><span class='small'>₹${dpTotal.toFixed(2)} total • ₹${pendingDp.toFixed(2)} pending</span></div>`;
 }
 
 async function setRestaurantStatus(id, isOnline){
@@ -113,21 +103,25 @@ async function setRestaurantStatus(id, isOnline){
 }
 
 async function setDpStatus(id, status){
-  const { error } = await supabaseClient.from("delivery_partners").update({ status }).eq("id", id);
+  let { error } = await supabaseClient.from("delivery_partners").update({ status }).eq("id", id);
+  if(error){
+    const user = await supabaseClient.from("users").select("email").eq("id", id).maybeSingle();
+    const ins = await supabaseClient.from("delivery_partners").insert({ id, status, name: user.data?.email || id });
+    error = ins.error;
+  }
   if(error){ alert(error.message); return; }
   await loadDashboard();
 }
 
 async function loadDashboard(){
   setAdminMsg("Loading dashboard...");
-  const restaurants = await loadRestaurants();
-  const dps = await loadDPs();
-  const orders = await loadOrders();
+  const [restaurants, dps, orders] = await Promise.all([loadRestaurants(), loadDPs(), loadOrders()]);
   renderAdminMetrics(restaurants, dps, orders);
+  await loadAccounting();
   setAdminMsg("Dashboard loaded.");
 }
 
-(async function init(){ const ok = await requireAdmin(); if(!ok){ return; } await loadDashboard(); })();
+(async function init(){ const ok = await requireAdmin(); if(!ok) return; await loadDashboard(); })();
 </script>
 </body>
 </html>
