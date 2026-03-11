@@ -239,7 +239,14 @@ async function placeOrder(){
   });
 
   if(paymentError){
+<<<<<<< codex/fix-high-priority-payment-handling-bug
+    // Best-effort rollback so we do not leave an order that cannot be paid/verified.
+    await supabaseClient.from("order_items").delete().eq("order_id", order.id);
+    await supabaseClient.from("orders").delete().eq("id", order.id);
+    alert(`Payment initialization failed: ${paymentError.message}. Please try placing your order again.`);
+=======
     alert(`Payment record failed: ${paymentError.message}. Your order was not confirmed.`);
+>>>>>>> codex/improve-ui-with-zomato-inspired-design
     return;
   }
 
