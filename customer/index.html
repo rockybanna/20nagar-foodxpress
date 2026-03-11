@@ -23,13 +23,17 @@
   </div>
 
   <div class="card">
-    <h3 class="card-title">Delivery Location</h3>
+    <h3 class="card-title">Delivery Location (Top Priority)</h3>
     <div class="row">
       <button class="button" onclick="useCurrentLocation()">Use Current Location</button>
-      <button class="button secondary" onclick="toggleMapPicker()">Pin Drop on Map</button>
+      <button class="button secondary" onclick="toggleMapPicker(true)">Pin Drop on Map</button>
     </div>
     <p id="location-label" class="small">Location not set.</p>
     <div id="map-picker" style="height:300px;border-radius:12px;display:none;margin-top:10px;border:1px solid #e7e7ec"></div>
+    <div id="map-actions" class="row" style="display:none;margin-top:10px">
+      <button class="button" onclick="confirmPinnedLocation()">Set this location</button>
+      <button class="button ghost" onclick="toggleMapPicker(false)">Cancel</button>
+    </div>
   </div>
 
   <div class="card"><h3 class="card-title">Popular Near You</h3><div id="restaurant-list" class="restaurant-grid"></div></div>
@@ -56,20 +60,38 @@
   </div>
 </div>
 
+<div id="addons-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:120;align-items:flex-end;justify-content:center;">
+  <div style="background:#fff;width:min(100%,560px);border-radius:16px 16px 0 0;padding:14px;max-height:78vh;overflow:auto;">
+    <div class="row" style="justify-content:space-between;align-items:center"><b id="addons-title"></b><button class="button ghost" onclick="closeAddonsModal()">Close</button></div>
+    <p id="addons-price" class="small"></p>
+    <div class="row" style="align-items:center;margin-bottom:8px"><span class="small">Quantity</span><button class="button ghost" onclick="changeModalQty(-1)">-</button><b id="addons-qty">1</b><button class="button ghost" onclick="changeModalQty(1)">+</button></div>
+    <div id="addons-list"></div>
+    <div class="row" style="margin-top:12px"><button class="button" style="width:100%" onclick="confirmAddWithAddons()">Add to Cart</button></div>
+  </div>
+</div>
+
 <script>
 let activeUser = null;
 let allRestaurants = [];
 let cart = [];
 let pendingVerification = null;
 let customerLocation = null;
+let pinnedLocationDraft = null;
 let map = null;
 let marker = null;
 let placingOrder = false;
+let menuAddonsMap = {};
+let currentMenuContext = null;
+let modalState = null;
 const PAYMENT_PROOF_BUCKET = "payment_proofs";
 
 function setMessage(text){ document.getElementById("customer-msg").innerText = text; }
 function rupees(v){ return `₹${Number(v || 0).toFixed(2)}`; }
 function escapeHTML(t){ return String(t || "").replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+function getAddonName(a){ return a.name || a.title || "Addon"; }
+function getAddonPrice(a){ return Number(a.price ?? a.addon_price ?? a.amount ?? 0); }
+function getAddonMenuItemId(a){ return a.menu_item_id || a.menu_id || a.item_id || null; }
 
 async function requireCustomer(){
   const { data } = await supabaseClient.auth.getSession();
@@ -79,7 +101,8 @@ async function requireCustomer(){
   if(!profile || profile.role !== "customer"){ alert("Customer role required"); window.location.href = "../"; return null; }
   activeUser = user;
 
-  const { data: customer } = await supabaseClient.from("customers").select("latitude,longitude").eq("id", user.id).maybeSingle();
+  const { data: customer } = await supabaseClient.from("customers").select("id,latitude,longitude").eq("id", user.id).maybeSingle();
+  if(!customer){ await supabaseClient.from("customers").upsert({ id: user.id }); }
   if(customer?.latitude && customer?.longitude){
     customerLocation = { latitude: Number(customer.latitude), longitude: Number(customer.longitude) };
     document.getElementById("location-label").innerText = `Lat ${customerLocation.latitude.toFixed(5)}, Lng ${customerLocation.longitude.toFixed(5)}`;
@@ -117,30 +140,148 @@ function renderRestaurants(){
 }
 
 async function loadMenu(restaurantId, restaurantName){
+  currentMenuContext = { restaurantId, restaurantName };
   setMessage(`Loading menu for ${restaurantName}`);
   const { data } = await supabaseClient.from("menu_items").select("id,restaurant_id,name,description,price").eq("restaurant_id", restaurantId).order("name", { ascending: true });
+  const items = data || [];
+  menuAddonsMap = await loadAddonsForItems(items, restaurantId);
+
   const container = document.getElementById("menu-list");
   container.innerHTML = "";
-  if(!(data || []).length){ container.innerHTML = "<p class='small'>No menu items.</p>"; return; }
-  data.forEach((item) => {
+  if(!items.length){ container.innerHTML = "<p class='small'>No menu items.</p>"; return; }
+  items.forEach((item) => {
+    const addonCount = (menuAddonsMap[item.id] || []).length;
     const div = document.createElement("div");
     div.className = "card";
-    div.innerHTML = `<b>${escapeHTML(item.name)}</b><p class='small'>${escapeHTML(item.description || "")}</p><div class='row'><span style='font-weight:700'>${rupees(item.price)}</span><input id='qty-${item.id}' type='number' value='1' min='1' style='width:70px'><button class='button' onclick="addToCart('${item.id}','${escapeHTML(item.name)}',${Number(item.price)},'${item.restaurant_id}','${escapeHTML(restaurantName)}')">Add</button></div>`;
+    div.innerHTML = `<b>${escapeHTML(item.name)}</b>
+      <p class='small'>${escapeHTML(item.description || "")}</p>
+      <p class='small'>${addonCount ? `${addonCount} addon options available` : "No addons"}</p>
+      <div class='row' style='align-items:center'>
+        <span style='font-weight:700;flex:1'>${rupees(item.price)}</span>
+        <button class='button ghost' onclick="changeMenuQty('${item.id}',-1)">-</button>
+        <b id='qty-${item.id}' style='min-width:22px;text-align:center'>1</b>
+        <button class='button ghost' onclick="changeMenuQty('${item.id}',1)">+</button>
+        <button class='button add-item-btn'>Add</button>
+      </div>`;
+    div.querySelector('.add-item-btn').addEventListener('click', () => openAddonsModal(item, restaurantName));
     container.appendChild(div);
   });
 }
 
-function addToCart(id, name, price, restaurantId, restaurantName){
-  const qty = Math.max(1, Number(document.getElementById(`qty-${id}`).value || 1));
-  if(cart.length && cart[0].restaurantId !== restaurantId){
+async function loadAddonsForItems(items, restaurantId){
+  const itemIds = items.map((i) => i.id);
+  const out = {};
+  if(!itemIds.length){ return out; }
+
+  let addonRows = [];
+  let response = await supabaseClient.from("addons").select("*").in("menu_item_id", itemIds);
+  if(response.error){
+    response = await supabaseClient.from("addons").select("*").eq("restaurant_id", restaurantId);
+  }
+  addonRows = response.data || [];
+
+  addonRows.forEach((a) => {
+    const menuItemId = getAddonMenuItemId(a);
+    if(!menuItemId){ return; }
+    if(!out[menuItemId]){ out[menuItemId] = []; }
+    out[menuItemId].push(a);
+  });
+  return out;
+}
+
+function changeMenuQty(itemId, delta){
+  const el = document.getElementById(`qty-${itemId}`);
+  if(!el){ return; }
+  const next = Math.max(1, Number(el.innerText || 1) + delta);
+  el.innerText = next;
+}
+
+function openAddonsModal(item, restaurantName){
+  const qty = Number(document.getElementById(`qty-${item.id}`)?.innerText || 1);
+  const addons = menuAddonsMap[item.id] || [];
+  modalState = { item, restaurantName, qty, selected: [] };
+
+  document.getElementById("addons-title").innerText = item.name;
+  document.getElementById("addons-price").innerText = `Base price ${rupees(item.price)}`;
+  document.getElementById("addons-qty").innerText = String(qty);
+
+  const list = document.getElementById("addons-list");
+  list.innerHTML = "";
+  if(!addons.length){ list.innerHTML = "<p class='small'>No addons for this item. Tap Add to Cart.</p>"; }
+  addons.forEach((a) => {
+    const row = document.createElement("label");
+    row.className = "list-item";
+    row.style.display = "block";
+    row.style.marginBottom = "8px";
+    row.innerHTML = `<input type='checkbox' value='${escapeHTML(a.id)}' onchange='toggleAddonSelection("${escapeHTML(a.id)}")' style='width:auto;margin-right:8px'>${escapeHTML(getAddonName(a))} <span class='small'>+ ${rupees(getAddonPrice(a))}</span>`;
+    list.appendChild(row);
+  });
+
+  document.getElementById("addons-modal").style.display = "flex";
+}
+
+function closeAddonsModal(){ document.getElementById("addons-modal").style.display = "none"; modalState = null; }
+
+function changeModalQty(delta){
+  if(!modalState){ return; }
+  modalState.qty = Math.max(1, modalState.qty + delta);
+  document.getElementById("addons-qty").innerText = String(modalState.qty);
+}
+
+function toggleAddonSelection(addonId){
+  if(!modalState){ return; }
+  if(modalState.selected.includes(addonId)){ modalState.selected = modalState.selected.filter((id) => id !== addonId); }
+  else { modalState.selected.push(addonId); }
+}
+
+function confirmAddWithAddons(){
+  if(!modalState){ return; }
+  const item = modalState.item;
+  const addons = (menuAddonsMap[item.id] || []).filter((a) => modalState.selected.includes(String(a.id)));
+  addToCart(item, modalState.restaurantName, modalState.qty, addons);
+  closeAddonsModal();
+}
+
+function getCartKey(itemId, addons){
+  const addonKey = (addons || []).map((a) => a.id).sort().join("|");
+  return `${itemId}::${addonKey}`;
+}
+
+function addToCart(item, restaurantName, qty, addons){
+  if(cart.length && cart[0].restaurantId !== item.restaurant_id){
     alert(`Single restaurant per order. Clear cart before adding from ${restaurantName}.`);
     return;
   }
-  const existing = cart.find((i) => i.id === id);
+
+  const addonUnit = (addons || []).reduce((s, a) => s + getAddonPrice(a), 0);
+  const unitPrice = Number(item.price) + addonUnit;
+  const key = getCartKey(item.id, addons);
+  const existing = cart.find((i) => i.key === key);
   if(existing){ existing.quantity += qty; }
-  else { cart.push({ id, name, price, quantity: qty, restaurantId, restaurantName }); }
+  else {
+    cart.push({
+      key,
+      id: item.id,
+      name: item.name,
+      basePrice: Number(item.price),
+      price: unitPrice,
+      quantity: qty,
+      restaurantId: item.restaurant_id,
+      restaurantName,
+      addons: (addons || []).map((a) => ({ id: a.id, name: getAddonName(a), price: getAddonPrice(a) }))
+    });
+  }
   renderCart();
 }
+
+function updateCartItem(index, delta){
+  if(!cart[index]){ return; }
+  cart[index].quantity += delta;
+  if(cart[index].quantity <= 0){ cart.splice(index, 1); }
+  renderCart();
+}
+
+function removeCartItem(index){ cart.splice(index, 1); renderCart(); }
 
 function renderCart(){
   const container = document.getElementById("cart-items");
@@ -149,10 +290,19 @@ function renderCart(){
   document.getElementById("cart-count").innerText = `(${cart.reduce((s, i) => s + i.quantity, 0)})`;
   document.getElementById("cart-restaurant-label").innerText = cart.length ? `Restaurant: ${cart[0].restaurantName}` : "";
   container.innerHTML = "";
-  cart.forEach((i) => {
+
+  if(!cart.length){ container.innerHTML = "<p class='small'>Cart is empty.</p>"; }
+
+  cart.forEach((i, index) => {
     const div = document.createElement("div");
     div.className = "list-item";
-    div.innerHTML = `<b>${escapeHTML(i.name)}</b><br><span class='small'>${i.quantity} × ${rupees(i.price)}</span>`;
+    const addonText = (i.addons || []).length ? `<br><span class='small'>Addons: ${i.addons.map((a) => `${escapeHTML(a.name)} (${rupees(a.price)})`).join(", ")}</span>` : "";
+    div.innerHTML = `<b>${escapeHTML(i.name)}</b>${addonText}<br><span class='small'>${i.quantity} × ${rupees(i.price)}</span>
+      <div class='row' style='margin-top:8px'>
+        <button class='button ghost' onclick='updateCartItem(${index},-1)'>-</button>
+        <button class='button ghost' onclick='updateCartItem(${index},1)'>+</button>
+        <button class='button secondary' onclick='removeCartItem(${index})'>Remove</button>
+      </div>`;
     container.appendChild(div);
   });
 }
@@ -170,33 +320,59 @@ async function useCurrentLocation(){
   setMessage("Reading current location...");
   navigator.geolocation.getCurrentPosition(async (pos) => {
     await saveCustomerLocation(pos.coords.latitude, pos.coords.longitude);
+    toggleMapPicker(false);
     setMessage("Location saved.");
   }, (err) => {
     setMessage(`Location failed: ${err.message}`);
   }, { enableHighAccuracy: true, timeout: 10000 });
 }
 
-function toggleMapPicker(){
+function updateDraftLabel(){
+  if(!pinnedLocationDraft){ return; }
+  document.getElementById("location-label").innerText = `Draft pin: Lat ${pinnedLocationDraft.latitude.toFixed(5)}, Lng ${pinnedLocationDraft.longitude.toFixed(5)} (tap Set this location)`;
+}
+
+function toggleMapPicker(open = null){
   const mapEl = document.getElementById("map-picker");
-  const opening = mapEl.style.display === "none";
-  mapEl.style.display = opening ? "block" : "none";
-  if(!opening){ return; }
+  const actions = document.getElementById("map-actions");
+  const shouldOpen = open === null ? mapEl.style.display === "none" : open;
+
+  mapEl.style.display = shouldOpen ? "block" : "none";
+  actions.style.display = shouldOpen ? "flex" : "none";
+  if(!shouldOpen){ return; }
 
   const fallback = customerLocation || { latitude: 17.3850, longitude: 78.4867 };
+  pinnedLocationDraft = { ...fallback };
+
   if(!map){
     map = L.map("map-picker").setView([fallback.latitude, fallback.longitude], 13);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
     marker = L.marker([fallback.latitude, fallback.longitude], { draggable: true }).addTo(map);
-    marker.on("dragend", async () => {
+
+    marker.on("dragend", () => {
       const ll = marker.getLatLng();
-      await saveCustomerLocation(ll.lat, ll.lng);
+      pinnedLocationDraft = { latitude: ll.lat, longitude: ll.lng };
+      updateDraftLabel();
     });
-    map.on("click", async (e) => {
+    map.on("click", (e) => {
       marker.setLatLng(e.latlng);
-      await saveCustomerLocation(e.latlng.lat, e.latlng.lng);
+      pinnedLocationDraft = { latitude: e.latlng.lat, longitude: e.latlng.lng };
+      updateDraftLabel();
     });
+  } else {
+    map.setView([fallback.latitude, fallback.longitude], 13);
+    marker.setLatLng([fallback.latitude, fallback.longitude]);
   }
+
+  updateDraftLabel();
   setTimeout(() => map.invalidateSize(), 60);
+}
+
+async function confirmPinnedLocation(){
+  if(!pinnedLocationDraft){ alert("Drop pin on map first"); return; }
+  await saveCustomerLocation(pinnedLocationDraft.latitude, pinnedLocationDraft.longitude);
+  toggleMapPicker(false);
+  setMessage("Pinned location set successfully.");
 }
 
 function makeOrderCode(){ return `FX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`; }
@@ -226,9 +402,10 @@ async function placeOrder(){
   }).select("id").single();
 
   if(error){
-    const fallback = await supabaseClient.from("orders").insert({ customer_id: activeUser.id, restaurant_id: restaurantId, total_amount: total, status: "pending" }).select("id").single();
-    if(fallback.error){ alert(fallback.error.message); placingOrder = false; document.getElementById("place-order-btn").disabled = false; return; }
-    order.id = fallback.data.id;
+    alert(error.message);
+    placingOrder = false;
+    document.getElementById("place-order-btn").disabled = false;
+    return;
   }
 
   const items = cart.map((i) => ({ order_id: order.id, menu_item_id: i.id, quantity: i.quantity, price: i.price }));
