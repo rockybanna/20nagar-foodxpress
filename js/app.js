@@ -1,4 +1,3 @@
-```javascript
 // ---------- AUTH FUNCTIONS ----------
 
 // signup
