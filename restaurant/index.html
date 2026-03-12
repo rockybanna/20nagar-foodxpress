@@ -13,110 +13,301 @@
   <div class="card">
     <div class="row">
       <button class="button" onclick="loadOrders()">Refresh Orders</button>
-      <button class="button secondary" id="rest-online-btn" onclick="toggleRestaurantStatus()">Go Online</button>
+      <button class="button secondary" id="rest-online-btn" onclick="toggleRestaurantStatus()">Open Restaurant</button>
       <button class="button secondary" onclick="logout()">Logout</button>
     </div>
     <p id="rest-msg" class="small"></p>
   </div>
-  <div id="rest-metrics" class="dashboard-grid"></div>
+
   <div class="grid cols-2">
-    <div class="card"><h3 class="card-title">Live Kitchen Queue</h3><div id="orders-list"></div></div>
-    <div class="card"><h3 class="card-title">Accounting Clean</h3><div id="accounting-list"></div></div>
+    <div class="card">
+      <h3 class="card-title">Incoming Orders</h3>
+      <div id="orders-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">Manage Menu</h3>
+      <div class="row" style="margin-bottom:10px">
+        <input id="menu-name" placeholder="Item name">
+        <input id="menu-price" type="number" step="0.01" min="0" placeholder="Price">
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <input id="menu-description" placeholder="Description" style="flex:1">
+        <button class="button" id="menu-save-btn" onclick="saveMenuItem()">Add Item</button>
+      </div>
+      <p id="menu-msg" class="small"></p>
+      <div id="menu-items-list"></div>
+    </div>
   </div>
 </div>
 
 <script>
+const STATUS_FLOW = [
+  "pending_payment",
+  "payment_submitted",
+  "confirmed",
+  "preparing",
+  "ready_for_pickup",
+  "out_for_delivery",
+  "delivered"
+];
+
 let restaurantUser = null;
 let restaurantId = null;
-let isOnline = false;
+let isOpen = true;
+let editingMenuItemId = null;
+
 function msg(text){ document.getElementById("rest-msg").innerText = text; }
+function menuMsg(text){ document.getElementById("menu-msg").innerText = text; }
+function rupees(v){ return `₹${Number(v || 0).toFixed(2)}`; }
+function escapeHTML(t){ return String(t || "").replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "../"; }
 
 async function requireRestaurant(){
   const { data } = await supabaseClient.auth.getSession();
   if(!data.session){ window.location.href = "../"; return false; }
-  restaurantUser = data.session.user;
-  const { data: profile, error } = await supabaseClient.from("users").select("role,email").eq("id", restaurantUser.id).single();
-  if(error || profile.role !== "restaurant"){ alert("Only restaurant role allowed."); window.location.href = "../"; return false; }
 
-  const { data: restaurant } = await supabaseClient.from("restaurants").select("id,is_online,name").eq("id", restaurantUser.id).maybeSingle();
-  if(!restaurant){
-    await supabaseClient.from("restaurants").insert({ id: restaurantUser.id, name: profile.email || "Restaurant", is_online: false });
-    restaurantId = restaurantUser.id;
-    isOnline = false;
-  } else {
-    restaurantId = restaurant.id;
-    isOnline = !!restaurant.is_online;
+  restaurantUser = data.session.user;
+  const { data: profile, error: roleError } = await supabaseClient.from("users").select("role,email").eq("id", restaurantUser.id).single();
+  if(roleError || profile.role !== "restaurant"){
+    alert("Restaurant role required.");
+    window.location.href = "../";
+    return false;
   }
+
+  const { data: existingRestaurant } = await supabaseClient
+    .from("restaurants")
+    .select("id,name,is_open")
+    .eq("id", restaurantUser.id)
+    .maybeSingle();
+
+  if(existingRestaurant){
+    restaurantId = existingRestaurant.id;
+    isOpen = existingRestaurant.is_open;
+  } else {
+    const { data: created, error: createError } = await supabaseClient
+      .from("restaurants")
+      .insert({ id: restaurantUser.id, name: profile.email || "My Restaurant", is_open: true })
+      .select("id,is_open")
+      .single();
+
+    if(createError){
+      msg(createError.message);
+      return false;
+    }
+
+    restaurantId = created.id;
+    isOpen = created.is_open;
+  }
+
   renderOnlineButton();
   return true;
 }
 
-function renderOnlineButton(){ document.getElementById("rest-online-btn").innerText = isOnline ? "Go Offline" : "Go Online"; }
+function renderOnlineButton(){
+  document.getElementById("rest-online-btn").innerText = isOpen ? "Mark Closed" : "Mark Open";
+}
 
 async function toggleRestaurantStatus(){
-  isOnline = !isOnline;
-  const { error } = await supabaseClient.from("restaurants").update({ is_online: isOnline }).eq("id", restaurantId);
-  if(error){ isOnline = !isOnline; alert(error.message); }
+  const next = !isOpen;
+  const { error } = await supabaseClient.from("restaurants").update({ is_open: next }).eq("id", restaurantId);
+  if(error){
+    msg(error.message);
+    return;
+  }
+  isOpen = next;
   renderOnlineButton();
 }
 
-function nextStatusActions(order){
-  if(order.status === "pending") return `<button class='button' onclick="updateOrderStatus('${order.id}','accepted')">Accept</button> <button class='button secondary' onclick="updateOrderStatus('${order.id}','cancelled')">Reject</button>`;
-  if(order.status === "accepted") return `<button class='button' onclick="updateOrderStatus('${order.id}','preparing')">Start Preparing</button>`;
-  if(order.status === "preparing") return `<button class='button' onclick="updateOrderStatus('${order.id}','ready_for_pickup')">Mark Ready</button>`;
-  return "";
-}
+function statusActions(order){
+  const index = STATUS_FLOW.indexOf(order.status);
+  if(index === -1 || index >= STATUS_FLOW.length - 1){ return ""; }
+  if(order.status === "pending_payment"){
+    return `<button class='button' onclick="updateOrderStatus('${order.id}','payment_submitted')">Mark Payment Submitted</button>`;
+  }
 
-function renderMetrics(orders){
-  const pending = orders.filter((o) => o.status === "pending").length;
-  const preparing = orders.filter((o) => ["accepted", "preparing"].includes(o.status)).length;
-  const ready = orders.filter((o) => o.status === "ready_for_pickup").length;
-  document.getElementById("rest-metrics").innerHTML = `<div class='metric'><h4>Pending Orders</h4><p>${pending}</p></div><div class='metric'><h4>In Kitchen</h4><p>${preparing}</p></div><div class='metric'><h4>Ready for Pickup</h4><p>${ready}</p></div>`;
+  const next = STATUS_FLOW[index + 1];
+  return `<button class='button' onclick="updateOrderStatus('${order.id}','${next}')">Move to ${next}</button>`;
 }
 
 async function loadOrders(){
-  msg("Loading orders...");
-  const { data, error } = await supabaseClient.from("orders").select("id,status,total_amount,distance_km,created_at,customer_id,payments(status)").eq("restaurant_id", restaurantId).order("created_at", { ascending: false }).limit(60);
+  msg("Loading incoming orders...");
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,status,total_amount,delivery_latitude,delivery_longitude,created_at")
+    .eq("restaurant_id", restaurantId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
   const container = document.getElementById("orders-list");
   container.innerHTML = "";
-  if(error){ msg(error.message); return; }
 
-  const active = (data || []).filter((o) => ["pending", "accepted", "preparing", "ready_for_pickup"].includes(o.status));
-  renderMetrics(active);
-  if(!active.length){ container.innerHTML = "<p class='small'>No active orders.</p>"; }
-  active.forEach((order) => {
-    const payment = (order.payments || [])[0]?.status || "pending";
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>Total: ₹${Number(order.total_amount).toFixed(2)} • Payment: ${payment}</span><br><div class='row' style='margin-top:8px'>${nextStatusActions(order)}</div>`;
-    container.appendChild(div);
-  });
-  await loadAccounting(data || []);
-  msg("Orders loaded");
-}
-
-async function loadAccounting(allOrders){
-  const delivered = allOrders.filter((o) => o.status === "delivered");
-  const gross = delivered.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const commission = gross * 0.2;
-  const payout = gross - commission;
-  const container = document.getElementById("accounting-list");
-  container.innerHTML = `<div class='list-item'><b>Delivered Orders</b><br><span class='small'>${delivered.length}</span></div><div class='list-item'><b>Gross Sales</b><br><span class='small'>₹${gross.toFixed(2)}</span></div><div class='list-item'><b>Platform Fee (20%)</b><br><span class='small'>₹${commission.toFixed(2)}</span></div><div class='list-item'><b>Estimated Settlement</b><br><span class='small'>₹${payout.toFixed(2)}</span></div>`;
-
-  if(delivered.length){
-    const last = delivered[0];
-    await supabaseClient.from("restaurant_settlements").upsert({ restaurant_id: restaurantId, order_id: last.id, gross_amount: gross, commission_amount: commission, net_amount: payout, status: "pending" }, { onConflict: "restaurant_id,order_id" });
+  if(error){
+    msg(error.message);
+    return;
   }
+
+  const incoming = (data || []).filter((order) => !["delivered", "cancelled"].includes(order.status));
+  if(!incoming.length){
+    container.innerHTML = "<p class='small'>No incoming orders.</p>";
+    msg("Incoming queue empty.");
+    return;
+  }
+
+  incoming.forEach((order) => {
+    const row = document.createElement("div");
+    row.className = "list-item";
+    row.innerHTML = `
+      <b>Order ${order.id}</b>
+      <span class='badge status-${order.status}'>${order.status}</span><br>
+      <span class='small'>${rupees(order.total_amount)} • ${new Date(order.created_at).toLocaleString()}</span><br>
+      <span class='small'>Delivery: ${Number(order.delivery_latitude || 0).toFixed(5)}, ${Number(order.delivery_longitude || 0).toFixed(5)}</span>
+      <div class='row' style='margin-top:8px'>${statusActions(order)}</div>
+    `;
+    container.appendChild(row);
+  });
+
+  msg(`Loaded ${incoming.length} incoming orders.`);
 }
 
 async function updateOrderStatus(orderId, newStatus){
-  const { error } = await supabaseClient.from("orders").update({ status: newStatus }).eq("id", orderId).eq("restaurant_id", restaurantId);
-  if(error){ alert(error.message); return; }
+  const { error } = await supabaseClient
+    .from("orders")
+    .update({ status: newStatus })
+    .eq("id", orderId)
+    .eq("restaurant_id", restaurantId);
+
+  if(error){
+    alert(error.message);
+    return;
+  }
+
   await loadOrders();
 }
 
-(async function init(){ const ok = await requireRestaurant(); if(!ok) return; await loadOrders(); })();
+function resetMenuForm(){
+  editingMenuItemId = null;
+  document.getElementById("menu-name").value = "";
+  document.getElementById("menu-price").value = "";
+  document.getElementById("menu-description").value = "";
+  document.getElementById("menu-save-btn").innerText = "Add Item";
+}
+
+async function loadMenuItems(){
+  const { data, error } = await supabaseClient
+    .from("menu_items")
+    .select("id,name,description,price,is_available")
+    .eq("restaurant_id", restaurantId)
+    .order("created_at", { ascending: false });
+
+  const list = document.getElementById("menu-items-list");
+  list.innerHTML = "";
+
+  if(error){
+    menuMsg(error.message);
+    return;
+  }
+
+  const items = data || [];
+  if(!items.length){
+    list.innerHTML = "<p class='small'>No menu items yet.</p>";
+    return;
+  }
+
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "list-item";
+    row.innerHTML = `
+      <b>${escapeHTML(item.name)}</b>
+      <span class='small'>${rupees(item.price)} • ${item.is_available ? "available" : "unavailable"}</span><br>
+      <span class='small'>${escapeHTML(item.description || "No description")}</span>
+      <div class='row' style='margin-top:8px'>
+        <button class='button ghost' onclick="editMenuItem('${item.id}', '${escapeHTML(item.name)}', '${escapeHTML(item.description || "")}', ${Number(item.price)})">Edit</button>
+        <button class='button ghost' onclick="toggleMenuAvailability('${item.id}', ${item.is_available ? "false" : "true"})">${item.is_available ? "Mark Unavailable" : "Mark Available"}</button>
+        <button class='button secondary' onclick="deleteMenuItem('${item.id}')">Remove</button>
+      </div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+function editMenuItem(id, name, description, price){
+  editingMenuItemId = id;
+  document.getElementById("menu-name").value = name;
+  document.getElementById("menu-price").value = price;
+  document.getElementById("menu-description").value = description;
+  document.getElementById("menu-save-btn").innerText = "Update Item";
+}
+
+async function saveMenuItem(){
+  const name = document.getElementById("menu-name").value.trim();
+  const description = document.getElementById("menu-description").value.trim();
+  const price = Number(document.getElementById("menu-price").value);
+
+  if(!name){ menuMsg("Name is required."); return; }
+  if(Number.isNaN(price) || price < 0){ menuMsg("Valid price is required."); return; }
+
+  let response;
+  if(editingMenuItemId){
+    response = await supabaseClient
+      .from("menu_items")
+      .update({ name, description, price })
+      .eq("id", editingMenuItemId)
+      .eq("restaurant_id", restaurantId);
+  } else {
+    response = await supabaseClient
+      .from("menu_items")
+      .insert({ restaurant_id: restaurantId, name, description, price, is_available: true });
+  }
+
+  if(response.error){
+    menuMsg(response.error.message);
+    return;
+  }
+
+  menuMsg(editingMenuItemId ? "Menu item updated." : "Menu item added.");
+  resetMenuForm();
+  await loadMenuItems();
+}
+
+async function toggleMenuAvailability(id, makeAvailable){
+  const { error } = await supabaseClient
+    .from("menu_items")
+    .update({ is_available: makeAvailable })
+    .eq("id", id)
+    .eq("restaurant_id", restaurantId);
+
+  if(error){
+    menuMsg(error.message);
+    return;
+  }
+
+  await loadMenuItems();
+}
+
+async function deleteMenuItem(id){
+  const { error } = await supabaseClient
+    .from("menu_items")
+    .delete()
+    .eq("id", id)
+    .eq("restaurant_id", restaurantId);
+
+  if(error){
+    menuMsg(error.message);
+    return;
+  }
+
+  menuMsg("Menu item removed.");
+  await loadMenuItems();
+}
+
+(async function init(){
+  const ok = await requireRestaurant();
+  if(!ok){ return; }
+
+  resetMenuForm();
+  await Promise.all([loadOrders(), loadMenuItems()]);
+})();
 </script>
 </body>
 </html>
