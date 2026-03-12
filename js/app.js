@@ -1,87 +1,98 @@
-// SUPABASE CONFIG
-const SUPABASE_URL = "https://uouwizrknwrqqynodplv.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVvdXdpenJrbndycXF5bm9kcGx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNDk1MjksImV4cCI6MjA4ODYyNTUyOX0.oxDZqaT1bMed6uuirN2ZoDCambPYLhOHp2PlhX8gaco";
+```javascript
+// ---------- AUTH FUNCTIONS ----------
 
-// CREATE CLIENT
-const supabaseClient = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_ANON_KEY
-);
+// signup
+async function signup(){
 
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value.trim();
 
-// SIGNUP
-async function signup() {
-
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
-
-  const { data, error } = await supabaseClient.auth.signUp({
-    email: email,
-    password: password
-  });
-
-  if (error) {
-    document.getElementById("message").innerText = error.message;
-  } else {
-    document.getElementById("message").innerText =
-      "Signup successful. Check email.";
+  if(!email || !password){
+    document.getElementById("message").innerText="Enter email and password";
+    return;
   }
 
-}
-
-
-// LOGIN
-async function login() {
-
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
-
-  const { data, error } = await supabaseClient.auth.signInWithPassword({
-    email: email,
-    password: password
+  const { error } = await supabaseClient.auth.signUp({
+    email,
+    password
   });
 
-  if (error) {
+  if(error){
     document.getElementById("message").innerText = error.message;
     return;
   }
 
-  document.getElementById("message").innerText = "Login successful";
+  document.getElementById("message").innerText =
+  "Signup successful. Check email.";
+
+}
+
+
+// login
+async function login(){
+
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value.trim();
+
+  if(!email || !password){
+    document.getElementById("message").innerText="Enter email and password";
+    return;
+  }
+
+  const { data, error } =
+  await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if(error){
+    document.getElementById("message").innerText = error.message;
+    return;
+  }
 
   const user = data.user;
 
-  const { data: profile, error: roleError } = await supabaseClient
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  // read role
+  const { data: profile, error: roleError } =
+  await supabaseClient
+  .from("users")
+  .select("role")
+  .eq("id", user.id)
+  .single();
 
-  if (roleError) {
-    console.log(roleError);
-    document.getElementById("message").innerText = "Unable to read user role.";
+  if(roleError){
+    document.getElementById("message").innerText =
+    "User role not configured.";
     return;
   }
 
   const role = profile.role;
 
-  if (role === "customer") {
-    window.location.href = "./customer/";
+  // redirect by role
+  if(role==="customer"){
+    window.location.href="./customer/";
   }
 
-  if (role === "restaurant") {
-    window.location.href = "./restaurant/";
+  else if(role==="restaurant"){
+    window.location.href="./restaurant/";
   }
 
-  if (role === "delivery_partner") {
-    window.location.href = "./delivery/";
+  else if(role==="delivery_partner"){
+    window.location.href="./delivery/";
   }
 
-  if (role === "payment_verifier") {
-    window.location.href = "./verifier/";
+  else if(role==="payment_verifier"){
+    window.location.href="./verifier/";
   }
 
-  if (role === "admin") {
-    window.location.href = "./admin/";
+  else if(role==="admin"){
+    window.location.href="./admin/";
+  }
+
+  else{
+    document.getElementById("message").innerText=
+    "Unknown role assigned.";
   }
 
 }
+```
