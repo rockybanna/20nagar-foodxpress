@@ -174,11 +174,19 @@ async function loadAddonsForItems(items, restaurantId){
   if(!itemIds.length){ return out; }
 
   let addonRows = [];
-  let response = await supabaseClient.from("addons").select("*").in("menu_item_id", itemIds);
-  if(response.error){
-    response = await supabaseClient.from("addons").select("*").eq("restaurant_id", restaurantId);
+  const addonItemColumns = ["menu_item_id", "menu_id", "item_id"];
+  for(const column of addonItemColumns){
+    const response = await supabaseClient.from("addons").select("*").in(column, itemIds);
+    if(!response.error){
+      addonRows = response.data || [];
+      break;
+    }
   }
-  addonRows = response.data || [];
+
+  if(!addonRows.length && restaurantId){
+    const restaurantScoped = await supabaseClient.from("addons").select("*").eq("restaurant_id", restaurantId);
+    if(!restaurantScoped.error){ addonRows = restaurantScoped.data || []; }
+  }
 
   addonRows.forEach((a) => {
     const menuItemId = getAddonMenuItemId(a);
@@ -375,8 +383,6 @@ async function confirmPinnedLocation(){
   setMessage("Pinned location set successfully.");
 }
 
-function makeOrderCode(){ return `FX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`; }
-
 async function placeOrder(){
   if(placingOrder){ return; }
   if(!cart.length){ alert("Add items first"); return; }
@@ -389,17 +395,12 @@ async function placeOrder(){
   document.getElementById("place-order-btn").disabled = true;
 
   const restaurantId = cart[0].restaurantId;
-  const orderCode = makeOrderCode();
-
   const { data: order, error } = await supabaseClient.from("orders").insert({
     customer_id: activeUser.id,
     restaurant_id: restaurantId,
     total_amount: total,
-    status: "pending",
-    customer_latitude: customerLocation.latitude,
-    customer_longitude: customerLocation.longitude,
-    order_code: orderCode
-  }).select("id").single();
+    status: "pending"
+  }).select("id,distance_km").single();
 
   if(error){
     alert(error.message);
@@ -414,7 +415,7 @@ async function placeOrder(){
 
   cart = [];
   renderCart();
-  setMessage(`Order ${order.id} (${orderCode}) created`);
+  setMessage(`Order ${order.id} created`);
   placingOrder = false;
   document.getElementById("place-order-btn").disabled = false;
   await loadTracking();
