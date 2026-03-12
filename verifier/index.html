@@ -1,127 +1,158 @@
+```html
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Payment Verifier</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="../css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="../js/config.js"></script>
+<title>Payment Verifier</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/config.js"></script>
 </head>
-<body>
-<div class="header">Payment Verifier</div>
-<div class="page">
-  <div class="card">
-    <div class="row">
-      <button class="button" onclick="loadPayments()">Refresh Payments</button>
-      <button class="button secondary" onclick="logout()">Logout</button>
-    </div>
-    <p id="verifier-msg" class="small"></p>
-  </div>
 
-  <div class="card">
-    <h3>Pending Payment Verifications</h3>
-    <div id="payments-list"></div>
-  </div>
+<body>
+
+<div class="header">Payment Verification</div>
+
+<div class="page">
+
+<div class="row">
+<button class="button" onclick="loadPayments()">Refresh</button>
+<button class="button secondary" onclick="logout()">Logout</button>
+</div>
+
+<h3>Pending Payments</h3>
+<div id="payments"></div>
+
 </div>
 
 <script>
-let verifierUser = null;
 
-function setMessage(text){
-  document.getElementById("verifier-msg").innerText = text;
-}
+let user=null
 
 async function logout(){
-  await supabaseClient.auth.signOut();
-  window.location.href = "../";
+await supabaseClient.auth.signOut()
+window.location.href="../"
 }
 
-async function requireVerifier(){
-  const { data } = await supabaseClient.auth.getSession();
-  if(!data.session){
-    window.location.href = "../";
-    return false;
-  }
+// ---------- INIT ----------
 
-  verifierUser = data.session.user;
+async function init(){
 
-  const { data: profile, error } = await supabaseClient
-    .from("users")
-    .select("role")
-    .eq("id", verifierUser.id)
-    .single();
+const {data}=await supabaseClient.auth.getSession()
 
-  if(error || profile.role !== "payment_verifier"){
-    alert("Only payment verifier role allowed.");
-    window.location.href = "../";
-    return false;
-  }
-
-  return true;
+if(!data.session){
+window.location.href="../"
+return
 }
+
+user=data.session.user
+
+const {data:profile}=await supabaseClient
+.from("users")
+.select("role")
+.eq("id",user.id)
+.single()
+
+if(profile.role!=="payment_verifier"){
+alert("Verifier role required")
+window.location.href="../"
+return
+}
+
+await loadPayments()
+
+}
+
+// ---------- LOAD PAYMENTS ----------
 
 async function loadPayments(){
-  setMessage("Loading payment queue...");
-  const { data, error } = await supabaseClient
-    .from("payments")
-    .select("id,order_id,amount,method,status,proof_url,created_at")
-    .eq("status", "pending_verification")
-    .order("created_at", { ascending: true })
-    .limit(50);
 
-  const container = document.getElementById("payments-list");
-  container.innerHTML = "";
+const {data,error}=await supabaseClient
+.from("payments")
+.select("id,order_id,status,proof_url")
+.eq("status","pending_verification")
+.order("id",{ascending:false})
 
-  if(error){
-    container.innerHTML = `<p class='small'>${error.message}</p>`;
-    return;
-  }
+const container=document.getElementById("payments")
+container.innerHTML=""
 
-  if(!data.length){
-    container.innerHTML = "<p class='small'>No pending verifications.</p>";
-    setMessage("Queue empty");
-    return;
-  }
-
-  data.forEach((payment) => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerHTML = `
-      <b>Payment ${payment.id}</b><br>
-      <span class='small'>Order: ${payment.order_id}</span><br>
-      <span class='small'>Amount: ₹${Number(payment.amount).toFixed(2)}</span><br>
-      <span class='small'>Method: ${payment.method}</span><br>
-      <span class='small'>Proof: ${payment.proof_url ? `<a href='${payment.proof_url}' target='_blank'>Open proof</a>` : 'Not uploaded'}</span><br>
-      ${payment.proof_url ? `<img src='${payment.proof_url}' alt='Payment proof ${payment.id}' style='max-width:260px;margin-top:8px;border-radius:8px;border:1px solid #e7e7ec;'/>` : ''}<br><br>
-      <button class='button' onclick="verifyPayment('${payment.id}','${payment.order_id}','approved')">Approve</button>
-      <button class='button secondary' onclick="verifyPayment('${payment.id}','${payment.order_id}','rejected')">Reject</button>
-    `;
-    container.appendChild(div);
-  });
-
-  setMessage("Pending payments loaded");
+if(error){
+container.innerText=error.message
+return
 }
 
-async function verifyPayment(paymentId, orderId, status){
-  const { error } = await supabaseClient
-    .from("payments")
-    .update({ status })
-    .eq("id", paymentId);
-
-  if(error){
-    alert(error.message);
-    return;
-  }
-
-  await supabaseClient.from("orders").update({ status: status === "approved" ? "pending" : "cancelled" }).eq("id", orderId);
-  await loadPayments();
+if(!data.length){
+container.innerHTML="<p class='small'>No payments waiting</p>"
+return
 }
 
-(async function init(){
-  const ok = await requireVerifier();
-  if(!ok){ return; }
-  await loadPayments();
-})();
+data.forEach(p=>{
+
+const div=document.createElement("div")
+div.className="list-item"
+
+div.innerHTML=`
+<b>Payment ${p.id}</b>
+<br>
+Order: ${p.order_id}
+<br>
+${p.proof_url ? `<a href="${p.proof_url}" target="_blank">View Proof</a>` : "No proof uploaded"}
+<br><br>
+<button class="button">Approve</button>
+<button class="button secondary">Reject</button>
+`
+
+div.querySelectorAll("button")[0].onclick=()=>{
+verify(p.id,p.order_id,"approved")
+}
+
+div.querySelectorAll("button")[1].onclick=()=>{
+verify(p.id,p.order_id,"rejected")
+}
+
+container.appendChild(div)
+
+})
+
+}
+
+// ---------- VERIFY ----------
+
+async function verify(paymentId,orderId,status){
+
+await supabaseClient
+.from("payments")
+.update({
+status,
+verified_by:user.id,
+verified_at:new Date()
+})
+.eq("id",paymentId)
+
+if(status==="approved"){
+
+await supabaseClient
+.from("orders")
+.update({status:"searching_dp"})
+.eq("id",orderId)
+
+}else{
+
+await supabaseClient
+.from("orders")
+.update({status:"cancelled"})
+.eq("id",orderId)
+
+}
+
+await loadPayments()
+
+}
+
+init()
+
 </script>
+
 </body>
 </html>
+```
