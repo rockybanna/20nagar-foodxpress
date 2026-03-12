@@ -16,41 +16,45 @@
 <div class="page">
 
 <h3>Restaurants</h3>
-<div id="restaurants"></div>
+<div id="restaurant-list"></div>
 
 <h3>Menu</h3>
-<div id="menu"></div>
+<div id="menu-list"></div>
 
 <h3>Cart</h3>
-<div id="cart"></div>
+<div id="cart-list"></div>
 <button class="button" onclick="placeOrder()">Place Order</button>
 
 <h3>Your Orders</h3>
-<div id="orders"></div>
+<div id="orders-list"></div>
 
 </div>
 
 <script>
 
-let activeUser=null;
-let currentRestaurant=null;
-let cart=[];
+let activeUser=null
+let currentRestaurant=null
+let cart=[]
+
+// ---------------- INIT ----------------
 
 async function init(){
 
-const {data}=await supabaseClient.auth.getSession();
+const {data}=await supabaseClient.auth.getSession()
 
 if(!data.session){
-window.location.href="../";
-return;
+window.location.href="../"
+return
 }
 
-activeUser=data.session.user;
+activeUser=data.session.user
 
-await loadRestaurants();
-await loadOrders();
+await loadRestaurants()
+await loadOrders()
 
 }
+
+// ---------------- RESTAURANTS ----------------
 
 async function loadRestaurants(){
 
@@ -58,126 +62,132 @@ const {data,error}=await supabaseClient
 .from("restaurants")
 .select("id,name")
 .eq("is_online",true)
-.order("name");
+.order("name")
 
-const el=document.getElementById("restaurants");
-el.innerHTML="";
+const container=document.getElementById("restaurant-list")
+container.innerHTML=""
 
 if(error){
-el.innerText=error.message;
-return;
+container.innerText=error.message
+return
 }
 
 data.forEach(r=>{
 
-const div=document.createElement("div");
-div.className="list-item";
+const div=document.createElement("div")
+div.className="list-item"
 
 div.innerHTML=`
 <b>${r.name}</b>
 <button class="button">View Menu</button>
-`;
+`
 
 div.querySelector("button").onclick=()=>{
-loadMenu(r);
-};
+loadMenu(r)
+}
 
-el.appendChild(div);
+container.appendChild(div)
 
-});
+})
 
 }
 
+// ---------------- MENU ----------------
+
 async function loadMenu(restaurant){
 
-currentRestaurant=restaurant;
+currentRestaurant=restaurant
 
 const {data,error}=await supabaseClient
 .from("restaurant_full_menu")
 .select("*")
-.eq("restaurant_id",restaurant.id);
+.eq("restaurant_id",restaurant.id)
 
-const el=document.getElementById("menu");
-el.innerHTML="";
+const container=document.getElementById("menu-list")
+container.innerHTML=""
 
 if(error){
-el.innerText=error.message;
-return;
+container.innerText=error.message
+return
 }
 
 data.forEach(item=>{
 
-const div=document.createElement("div");
-div.className="list-item";
+const div=document.createElement("div")
+div.className="list-item"
 
 div.innerHTML=`
 <b>${item.item_name}</b>
 <span>₹${item.price}</span>
 <button class="button">Add</button>
-`;
+`
 
 div.querySelector("button").onclick=()=>{
-addToCart(item);
-};
+addToCart(item)
+}
 
-el.appendChild(div);
+container.appendChild(div)
 
-});
+})
 
 }
 
+// ---------------- CART ----------------
+
 function addToCart(item){
 
-const found=cart.find(i=>i.item_id===item.item_id);
+const found=cart.find(i=>i.item_id===item.item_id)
 
 if(found){
-found.qty++;
+found.qty++
 }else{
 cart.push({
 item_id:item.item_id,
 name:item.item_name,
 price:item.price,
 qty:1
-});
+})
 }
 
-renderCart();
+renderCart()
 
 }
 
 function renderCart(){
 
-const el=document.getElementById("cart");
-el.innerHTML="";
+const container=document.getElementById("cart-list")
+container.innerHTML=""
 
 cart.forEach((i,index)=>{
 
-const div=document.createElement("div");
+const div=document.createElement("div")
 
 div.innerHTML=`
 ${i.name} x${i.qty} ₹${i.price*i.qty}
 <button onclick="removeCart(${index})">Remove</button>
-`;
+`
 
-el.appendChild(div);
+container.appendChild(div)
 
-});
+})
 
 }
 
-function removeCart(i){
-cart.splice(i,1);
-renderCart();
+function removeCart(index){
+cart.splice(index,1)
+renderCart()
 }
+
+// ---------------- ORDER ----------------
 
 async function placeOrder(){
 
 if(cart.length===0){
-alert("Cart empty");
-return;
+alert("Cart empty")
+return
 }
 
-const total=cart.reduce((s,i)=>s+(i.price*i.qty),0);
+const total=cart.reduce((sum,i)=>sum+(i.price*i.qty),0)
 
 const {data:order,error}=await supabaseClient
 .from("orders")
@@ -188,11 +198,11 @@ status:"pending_verification",
 total_amount:total
 })
 .select("id")
-.single();
+.single()
 
 if(error){
-alert(error.message);
-return;
+alert(error.message)
+return
 }
 
 const items=cart.map(i=>({
@@ -200,20 +210,22 @@ order_id:order.id,
 item_id:i.item_id,
 quantity:i.qty,
 price:i.price
-}));
+}))
 
 await supabaseClient
 .from("order_items")
-.insert(items);
+.insert(items)
 
-cart=[];
-renderCart();
+cart=[]
+renderCart()
 
-alert("Order placed");
+alert("Order placed")
 
-await loadOrders();
+await loadOrders()
 
 }
+
+// ---------------- ORDERS ----------------
 
 async function loadOrders(){
 
@@ -221,34 +233,34 @@ const {data,error}=await supabaseClient
 .from("orders")
 .select("id,status,total_amount,created_at")
 .eq("customer_id",activeUser.id)
-.order("created_at",{ascending:false});
+.order("created_at",{ascending:false})
 
-const el=document.getElementById("orders");
-el.innerHTML="";
+const container=document.getElementById("orders-list")
+container.innerHTML=""
 
 if(error){
-el.innerText=error.message;
-return;
+container.innerText=error.message
+return
 }
 
 data.forEach(o=>{
 
-const div=document.createElement("div");
-div.className="list-item";
+const div=document.createElement("div")
+div.className="list-item"
 
 div.innerHTML=`
 <b>Order ${o.id}</b>
 <span class="badge">${o.status}</span>
 ₹${o.total_amount}
-`;
+`
 
-el.appendChild(div);
+container.appendChild(div)
 
-});
+})
 
 }
 
-init();
+init()
 
 </script>
 
