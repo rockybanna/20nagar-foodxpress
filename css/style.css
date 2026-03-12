@@ -147,6 +147,8 @@ input, select, textarea{
 .search-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
 .search-row input{flex:1;min-width:220px;}
 .search-row .small{margin:0;}
+.address-item{margin-bottom:10px;}
+.address-item.selected{border:1px solid #f43f5e;background:#fff1f2;}
 @media (max-width:720px){
   .hero-banner{flex-direction:column;align-items:flex-start;}
   .hero-actions{justify-content:flex-start;}
