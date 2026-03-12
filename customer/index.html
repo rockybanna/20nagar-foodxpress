@@ -139,13 +139,28 @@ async function logout(){ await supabaseClient.auth.signOut(); window.location.hr
 
 async function loadRestaurants(){
   setMessage("Loading restaurants...");
-  const { data } = await supabaseClient.from("restaurants").select("id,name,is_online").eq("is_online", true).order("name", { ascending: true });
+
+  const query = supabaseClient.from("restaurants").select("id,name,is_online").order("name", { ascending: true });
+  let response = await query.eq("is_online", true);
+
+  if(response.error && response.error.message?.toLowerCase().includes("is_online")){
+    response = await supabaseClient.from("restaurants").select("id,name").order("name", { ascending: true });
+  }
+
+  if(response.error){
+    setMessage(`Unable to load restaurants: ${response.error.message}`);
+    allRestaurants = [];
+    renderRestaurants();
+    return;
+  }
+
   const seen = new Set();
-  allRestaurants = (data || []).filter((r) => {
-    if(seen.has(r.id)){ return false; }
+  allRestaurants = (response.data || []).filter((r) => {
+    if(!r?.id || !r?.name || seen.has(r.id)){ return false; }
     seen.add(r.id);
     return true;
   });
+
   renderRestaurants();
   setMessage(`Loaded ${allRestaurants.length} restaurants`);
 }
@@ -155,11 +170,26 @@ function renderRestaurants(){
   const filtered = allRestaurants.filter((r) => r.name.toLowerCase().includes(q));
   const container = document.getElementById("restaurant-list");
   container.innerHTML = "";
-  if(!filtered.length){ container.innerHTML = "<p class='small'>No restaurants found.</p>"; return; }
-  filtered.forEach((r) => {
+
+  if(!filtered.length){
+    container.innerHTML = "<p class='small'>No restaurants found.</p>";
+    return;
+  }
+
+  filtered.forEach((restaurant) => {
     const div = document.createElement("div");
     div.className = "card restaurant-card";
-    div.innerHTML = `<b>${escapeHTML(r.name)}</b><button class='button' onclick="loadMenu('${r.id}','${escapeHTML(r.name)}')">View Menu</button>`;
+
+    const title = document.createElement("b");
+    title.innerText = restaurant.name;
+
+    const button = document.createElement("button");
+    button.className = "button";
+    button.innerText = "View Menu";
+    button.addEventListener("click", () => loadMenu(restaurant.id, restaurant.name));
+
+    div.appendChild(title);
+    div.appendChild(button);
     container.appendChild(div);
   });
 }
@@ -167,7 +197,19 @@ function renderRestaurants(){
 async function loadMenu(restaurantId, restaurantName){
   currentMenuContext = { restaurantId, restaurantName };
   setMessage(`Loading menu for ${restaurantName}`);
-  const { data } = await supabaseClient.from("menu_items").select("id,restaurant_id,name,description,price").eq("restaurant_id", restaurantId).order("name", { ascending: true });
+
+  const { data, error } = await supabaseClient
+    .from("menu_items")
+    .select("id,restaurant_id,name,description,price")
+    .eq("restaurant_id", restaurantId)
+    .order("name", { ascending: true });
+
+  if(error){
+    setMessage(`Unable to load menu: ${error.message}`);
+    document.getElementById("menu-list").innerHTML = "<p class='small'>Failed to load menu.</p>";
+    return;
+  }
+
   const items = data || [];
   menuAddonsMap = await loadAddonsForItems(items, restaurantId);
 
