@@ -1,704 +1,257 @@
+```html
 <!DOCTYPE html>
 <html>
 <head>
-<title>FoodXpress Customer Panel</title>
+<title>FoodXpress Customer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../css/style.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="../js/config.js"></script>
 </head>
-<body class="customer-panel">
-<div class="header">FoodXpress Customer Panel</div>
-<div class="page customer-page">
-  <section class="hero-banner">
-    <div>
-      <p class="eyebrow">Fast delivery • Fresh food</p>
-      <h1>Order from top restaurants in minutes</h1>
-      <p class="small">Browse nearby places, customize your food, and track every order in real time.</p>
-    </div>
-    <div class="hero-actions">
-      <button class="button secondary" onclick="toggleCart()">Open Cart <span id="cart-count">(0)</span></button>
-      <button class="button ghost" onclick="loadRestaurants()">Refresh</button>
-      <button class="button ghost" onclick="logout()">Logout</button>
-    </div>
-  </section>
 
-  <section class="card">
-    <div class="search-row">
-      <input id="search-input" placeholder="Search restaurant, dish, or cuisine" oninput="renderRestaurants()">
-      <p id="customer-msg" class="small"></p>
-    </div>
-  </section>
+<body>
 
-  <section class="card">
-    <h3 class="card-title">Profile & Saved Delivery Addresses</h3>
-    <div class="grid cols-2">
-      <div>
-        <label class="small">Full name</label>
-        <input id="profile-full-name" placeholder="Enter full name">
-      </div>
-      <div>
-        <label class="small">Phone number</label>
-        <input id="profile-phone" placeholder="Enter phone number">
-      </div>
-    </div>
-    <div style="margin-top:10px">
-      <label class="small">Address title</label>
-      <input id="address-label-input" placeholder="Home, Office, Hostel...">
-    </div>
-    <div style="margin-top:10px">
-      <label class="small">Full address</label>
-      <textarea id="address-line-input" rows="2" placeholder="Flat/House, street, landmark, city"></textarea>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button class="button" onclick="useCurrentLocation()">Use Current Location</button>
-      <button class="button secondary" onclick="toggleMapPicker(true)">Pin on Map</button>
-      <button class="button" onclick="saveAddressFromDraft()">Save Address</button>
-    </div>
-    <p id="location-label" class="small">Location not set.</p>
-    <div id="map-picker" style="height:300px;border-radius:12px;display:none;margin-top:10px;border:1px solid #e7e7ec"></div>
-    <div id="map-actions" class="row" style="display:none;margin-top:10px">
-      <button class="button" onclick="confirmPinnedLocation()">Use This Pin</button>
-      <button class="button ghost" onclick="toggleMapPicker(false)">Cancel</button>
-    </div>
-    <h4 style="margin:14px 0 8px">Saved addresses</h4>
-    <div id="address-list"></div>
-  </section>
+<div class="header">FoodXpress Customer</div>
 
-  <section class="card">
-    <h3 class="card-title">Popular Near You</h3>
-    <div id="restaurant-list" class="restaurant-grid"></div>
-  </section>
+<div class="page">
 
-  <section class="card">
-    <h3 class="card-title">Menu</h3>
-    <p class="small">Single-cart rule: one order can contain items from only one restaurant.</p>
-    <div id="menu-list" class="menu-grid">Select a restaurant to view menu.</div>
-  </section>
+<h3>Restaurants</h3>
+<div id="restaurants"></div>
 
-  <section id="payment-proof-card" class="card" style="display:none"></section>
+<h3>Menu</h3>
+<div id="menu"></div>
 
-  <section class="card">
-    <h3 class="card-title">Live Order Tracking</h3>
-    <div id="tracking-list"></div>
-  </section>
-</div>
+<h3>Cart</h3>
+<div id="cart"></div>
+<button class="button" onclick="placeOrder()">Place Order</button>
 
-<div id="cart-drawer" class="cart-drawer">
-  <div class="cart-header"><span>Your Cart</span><button class="button ghost" onclick="toggleCart()">Close</button></div>
-  <div class="cart-body">
-    <p id="cart-restaurant-label" class="small"></p>
-    <div id="cart-items"></div>
-    <div class="row" style="margin-top:12px"><span class="small" style="flex:1">Payment mode: submit proof after placing order</span><button class="button" id="place-order-btn" onclick="placeOrder()">Place Order</button></div>
-    <div id="cart-total-breakdown"></div>
-    <p id="cart-total" style="font-weight:700"></p>
-  </div>
+<h3>Your Orders</h3>
+<div id="orders"></div>
+
 </div>
 
 <script>
-const ORDER_TIMELINE = [
-  "pending_payment",
-  "payment_submitted",
-  "confirmed",
-  "preparing",
-  "ready_for_pickup",
-  "out_for_delivery",
-  "delivered"
-];
 
-let activeUser = null;
-let allRestaurants = [];
-let currentRestaurant = null;
-let cart = [];
-let customerLocation = null;
-let pinnedLocationDraft = null;
-let selectedAddress = null;
-let customerAddresses = [];
-let map = null;
-let marker = null;
-let placingOrder = false;
+let activeUser=null;
+let currentRestaurant=null;
+let cart=[];
 
-function setMessage(text){ document.getElementById("customer-msg").innerText = text; }
-function rupees(v){ return `₹${Number(v || 0).toFixed(2)}`; }
-function escapeHTML(t){ return String(t || "").replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-function toFixedNumber(v){ return Number(v || 0).toFixed(5); }
+async function init(){
 
-function getChargeSummary(subtotal){
-  const safeSubtotal = Number(subtotal || 0);
-  if(!customerLocation){
-    return { subtotal: safeSubtotal, deliveryFee: 0, discount: 0, finalAmount: safeSubtotal, distanceKm: 0 };
-  }
+const {data}=await supabaseClient.auth.getSession();
 
-  const defaultHub = { latitude: 17.385, longitude: 78.4867 };
-  const distanceKm = haversineDistanceKm(defaultHub.latitude, defaultHub.longitude, customerLocation.latitude, customerLocation.longitude);
-  const deliveryFee = calculateDeliveryFee(distanceKm);
-  const discount = calculateDiscount(safeSubtotal, deliveryFee);
-  const finalAmount = Math.max(0, safeSubtotal + deliveryFee - discount);
-
-  return { subtotal: safeSubtotal, deliveryFee, discount, finalAmount, distanceKm };
+if(!data.session){
+window.location.href="../";
+return;
 }
 
-function calculateDeliveryFee(distanceKm){
-  if(distanceKm <= 8){
-    return Math.max(30, distanceKm * 15);
-  }
-  return Math.max(120, distanceKm * 13 + distanceKm * 1.2);
+activeUser=data.session.user;
+
+await loadRestaurants();
+await loadOrders();
+
 }
-
-function calculateDiscount(subtotal, deliveryFee){
-  if(subtotal <= 199){ return 0; }
-  const rawDiscount = (subtotal - 199) * 0.05;
-  return Math.min(rawDiscount, Math.max(0, deliveryFee - 1));
-}
-
-function haversineDistanceKm(lat1, lon1, lat2, lon2){
-  const R = 6371;
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-async function requireCustomer(){
-  const { data } = await supabaseClient.auth.getSession();
-  if(!data.session){ window.location.href = "../"; return null; }
-
-  const user = data.session.user;
-  const { data: profile, error: roleError } = await supabaseClient.from("users").select("role").eq("id", user.id).single();
-  if(roleError || profile.role !== "customer"){
-    alert("Customer role required");
-    window.location.href = "../";
-    return null;
-  }
-
-  activeUser = user;
-  const { data: customer } = await supabaseClient.from("customers").select("id,full_name,phone,latitude,longitude").eq("id", user.id).maybeSingle();
-  if(!customer){
-    await supabaseClient.from("customers").upsert({ id: user.id });
-  }
-
-  document.getElementById("profile-full-name").value = customer?.full_name || "";
-  document.getElementById("profile-phone").value = customer?.phone || "";
-
-  if(customer?.latitude !== null && customer?.longitude !== null){
-    customerLocation = { latitude: Number(customer.latitude), longitude: Number(customer.longitude) };
-    document.getElementById("location-label").innerText = `Current location: Lat ${toFixedNumber(customerLocation.latitude)}, Lng ${toFixedNumber(customerLocation.longitude)}`;
-  }
-
-  await loadCustomerAddresses();
-
-  return user;
-}
-
-async function loadCustomerAddresses(){
-  const { data, error } = await supabaseClient
-    .from("addresses")
-    .select("id,label,address_line,latitude,longitude,is_default")
-    .eq("customer_id", activeUser.id)
-    .order("created_at", { ascending: false });
-
-  if(error){
-    setMessage(`Could not load addresses: ${error.message}`);
-    customerAddresses = [];
-    renderAddressList();
-    return;
-  }
-
-  customerAddresses = data || [];
-  const defaultAddress = customerAddresses.find((a) => a.is_default) || customerAddresses[0] || null;
-  if(defaultAddress){
-    selectAddress(defaultAddress.id, false);
-  } else {
-    renderAddressList();
-  }
-}
-
-async function saveProfile(){
-  const fullName = document.getElementById("profile-full-name").value.trim();
-  const phone = document.getElementById("profile-phone").value.trim();
-
-  if(!fullName || !phone){
-    setMessage("Please add full name and phone number in profile.");
-    return false;
-  }
-
-  const { error } = await supabaseClient.from("customers").upsert({ id: activeUser.id, full_name: fullName || null, phone: phone || null });
-  if(error){
-    setMessage(`Profile save failed: ${error.message}`);
-    return false;
-  }
-  return true;
-}
-
-function renderAddressList(){
-  const container = document.getElementById("address-list");
-  container.innerHTML = "";
-
-  if(!customerAddresses.length){
-    container.innerHTML = "<p class='small'>No saved addresses yet. Add one using current location or map pin.</p>";
-    return;
-  }
-
-  customerAddresses.forEach((address) => {
-    const card = document.createElement("div");
-    card.className = `list-item address-item ${selectedAddress?.id === address.id ? "selected" : ""}`;
-    card.innerHTML = `
-      <div class='row' style='justify-content:space-between'>
-        <b>${escapeHTML(address.label || "Saved Address")}</b>
-        ${address.is_default ? "<span class='badge'>Default</span>" : ""}
-      </div>
-      <p class='small'>${escapeHTML(address.address_line || "Address details not provided")}</p>
-      <p class='small'>Lat ${toFixedNumber(address.latitude)}, Lng ${toFixedNumber(address.longitude)}</p>
-      <div class='row' style='margin-top:8px'>
-        <button class='button ghost' onclick='selectAddress("${address.id}")'>Deliver Here</button>
-        <button class='button secondary' onclick='setDefaultAddress("${address.id}")'>Set Default</button>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-}
-
-function selectAddress(addressId, rerender = true){
-  const chosen = customerAddresses.find((a) => a.id === addressId);
-  if(!chosen){ return; }
-  selectedAddress = chosen;
-  customerLocation = { latitude: Number(chosen.latitude), longitude: Number(chosen.longitude) };
-  document.getElementById("location-label").innerText = `Selected: ${chosen.label || "Saved Address"} • Lat ${toFixedNumber(chosen.latitude)}, Lng ${toFixedNumber(chosen.longitude)}`;
-  if(rerender){ renderAddressList(); }
-  renderCart();
-}
-
-async function setDefaultAddress(addressId){
-  const { error: clearError } = await supabaseClient
-    .from("addresses")
-    .update({ is_default: false })
-    .eq("customer_id", activeUser.id);
-
-  if(clearError){
-    setMessage(`Unable to set default address: ${clearError.message}`);
-    return;
-  }
-
-  const { error } = await supabaseClient
-    .from("addresses")
-    .update({ is_default: true })
-    .eq("id", addressId)
-    .eq("customer_id", activeUser.id);
-
-  if(error){
-    setMessage(`Unable to set default address: ${error.message}`);
-    return;
-  }
-  await loadCustomerAddresses();
-  setMessage("Default address updated.");
-}
-
-async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "../"; }
 
 async function loadRestaurants(){
-  setMessage("Loading restaurants...");
 
-  const response = await supabaseClient
-    .from("restaurants")
-    .select("id,name,cuisine,description,rating,is_open")
-    .eq("is_open", true)
-    .order("name", { ascending: true });
+const {data,error}=await supabaseClient
+.from("restaurants")
+.select("id,name")
+.eq("is_online",true)
+.order("name");
 
-  if(response.error){
-    setMessage(`Unable to load restaurants: ${response.error.message}`);
-    allRestaurants = [];
-    renderRestaurants();
-    return;
-  }
+const el=document.getElementById("restaurants");
+el.innerHTML="";
 
-  const seen = new Set();
-  allRestaurants = (response.data || []).filter((r) => {
-    if(!r?.id || !r?.name || seen.has(r.id)){ return false; }
-    seen.add(r.id);
-    return true;
-  });
-
-  renderRestaurants();
-  setMessage(`Loaded ${allRestaurants.length} restaurants`);
+if(error){
+el.innerText=error.message;
+return;
 }
 
-function renderRestaurants(){
-  const q = document.getElementById("search-input").value.trim().toLowerCase();
-  const filtered = allRestaurants.filter((r) => {
-    const haystack = [r.name, r.cuisine, r.description].filter(Boolean).join(" ").toLowerCase();
-    return haystack.includes(q);
-  });
-  const container = document.getElementById("restaurant-list");
-  container.innerHTML = "";
+data.forEach(r=>{
 
-  if(!filtered.length){
-    container.innerHTML = "<p class='small'>No restaurants found.</p>";
-    return;
-  }
+const div=document.createElement("div");
+div.className="list-item";
 
-  filtered.forEach((restaurant) => {
-    const card = document.createElement("div");
-    card.className = "card restaurant-card";
-    card.innerHTML = `
-      <b>${escapeHTML(restaurant.name)}</b>
-      <p class='small'>Cuisine: ${escapeHTML(restaurant.cuisine || "Not specified")}</p>
-      <p class='small'>Rating: ${Number(restaurant.rating || 0).toFixed(1)}</p>
-      <p class='small'>${escapeHTML(restaurant.description || "No description")}</p>
-      <button class='button'>View Menu</button>
-    `;
-    card.querySelector("button").addEventListener("click", (event) => {
-      event.stopPropagation();
-      loadMenu(restaurant);
-    });
-    container.appendChild(card);
-  });
+div.innerHTML=`
+<b>${r.name}</b>
+<button class="button">View Menu</button>
+`;
+
+div.querySelector("button").onclick=()=>{
+loadMenu(r);
+};
+
+el.appendChild(div);
+
+});
+
 }
 
 async function loadMenu(restaurant){
-  currentRestaurant = restaurant;
-  setMessage(`Loading menu for ${restaurant.name}...`);
 
-  const { data, error } = await supabaseClient
-    .from("menu_items")
-    .select("id,restaurant_id,name,price,is_available")
-    .eq("restaurant_id", restaurant.id)
-    .eq("is_available", true)
-    .order("name", { ascending: true });
+currentRestaurant=restaurant;
 
-  const container = document.getElementById("menu-list");
-  container.innerHTML = "";
+const {data,error}=await supabaseClient
+.from("restaurant_full_menu")
+.select("*")
+.eq("restaurant_id",restaurant.id);
 
-  if(error){
-    container.innerHTML = `<p class='small'>${escapeHTML(error.message)}</p>`;
-    return;
-  }
+const el=document.getElementById("menu");
+el.innerHTML="";
 
-  const items = data || [];
-  if(!items.length){
-    container.innerHTML = "<p class='small'>No available menu items.</p>";
-    return;
-  }
-
-  items.forEach((item) => {
-    const row = document.createElement("div");
-    row.className = "card";
-    row.innerHTML = `
-      <b>${escapeHTML(item.name)}</b>
-      <div class='row' style='align-items:center;margin-top:8px'>
-        <span style='font-weight:700;flex:1'>${rupees(item.price)}</span>
-        <button class='button'>Add to cart</button>
-      </div>
-    `;
-    row.querySelector("button").addEventListener("click", (event) => {
-      event.stopPropagation();
-      addToCart(item, restaurant);
-    });
-    container.appendChild(row);
-  });
-
-  setMessage(`Showing ${items.length} menu items for ${restaurant.name}`);
+if(error){
+el.innerText=error.message;
+return;
 }
 
-function addToCart(item, restaurant){
-  if(cart.length && cart[0].restaurantId !== restaurant.id){
-    alert(`One cart can contain items from only one restaurant. Clear your cart to order from ${restaurant.name}.`);
-    return;
-  }
+data.forEach(item=>{
 
-  const existing = cart.find((line) => line.menuItemId === item.id);
-  if(existing){
-    existing.quantity += 1;
-  } else {
-    cart.push({
-      menuItemId: item.id,
-      name: item.name,
-      price: Number(item.price),
-      quantity: 1,
-      restaurantId: restaurant.id,
-      restaurantName: restaurant.name
-    });
-  }
+const div=document.createElement("div");
+div.className="list-item";
 
-  renderCart();
+div.innerHTML=`
+<b>${item.item_name}</b>
+<span>₹${item.price}</span>
+<button class="button">Add</button>
+`;
+
+div.querySelector("button").onclick=()=>{
+addToCart(item);
+};
+
+el.appendChild(div);
+
+});
+
 }
 
-function updateCartItem(index, delta){
-  if(!cart[index]){ return; }
-  cart[index].quantity += delta;
-  if(cart[index].quantity <= 0){ cart.splice(index, 1); }
-  renderCart();
+function addToCart(item){
+
+const found=cart.find(i=>i.item_id===item.item_id);
+
+if(found){
+found.qty++;
+}else{
+cart.push({
+item_id:item.item_id,
+name:item.item_name,
+price:item.price,
+qty:1
+});
 }
 
-function removeCartItem(index){
-  cart.splice(index, 1);
-  renderCart();
+renderCart();
+
 }
 
 function renderCart(){
-  const itemContainer = document.getElementById("cart-items");
-  const breakdownEl = document.getElementById("cart-total-breakdown");
-  const count = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const charges = getChargeSummary(subtotal);
 
-  document.getElementById("cart-count").innerText = `(${count})`;
-  breakdownEl.innerHTML = `
-    <p class='small'>Subtotal: ${rupees(charges.subtotal)}</p>
-    <p class='small'>Delivery fee: ${rupees(charges.deliveryFee)}${customerLocation ? ` (${charges.distanceKm.toFixed(2)} km)` : " (set address)"}</p>
-    <p class='small'>Discount: -${rupees(charges.discount)}</p>
-  `;
-  document.getElementById("cart-total").innerText = `Final total: ${rupees(charges.finalAmount)}`;
-  document.getElementById("cart-restaurant-label").innerText = cart.length ? `Restaurant: ${cart[0].restaurantName}` : "";
+const el=document.getElementById("cart");
+el.innerHTML="";
 
-  itemContainer.innerHTML = "";
-  if(!cart.length){
-    itemContainer.innerHTML = "<p class='small'>Cart is empty.</p>";
-    return;
-  }
+cart.forEach((i,index)=>{
 
-  cart.forEach((item, index) => {
-    const line = document.createElement("div");
-    line.className = "list-item";
-    line.innerHTML = `
-      <b>${escapeHTML(item.name)}</b><br>
-      <span class='small'>${item.quantity} × ${rupees(item.price)}</span>
-      <div class='row' style='margin-top:8px'>
-        <button class='button ghost' onclick='updateCartItem(${index},-1)'>-</button>
-        <button class='button ghost' onclick='updateCartItem(${index},1)'>+</button>
-        <button class='button secondary' onclick='removeCartItem(${index})'>Remove</button>
-      </div>
-    `;
-    itemContainer.appendChild(line);
-  });
+const div=document.createElement("div");
+
+div.innerHTML=`
+${i.name} x${i.qty} ₹${i.price*i.qty}
+<button onclick="removeCart(${index})">Remove</button>
+`;
+
+el.appendChild(div);
+
+});
+
 }
 
-function toggleCart(){
-  document.getElementById("cart-drawer").classList.toggle("open");
-}
-
-async function saveCustomerLocation(latitude, longitude){
-  customerLocation = { latitude, longitude };
-  document.getElementById("location-label").innerText = `Draft location: Lat ${toFixedNumber(latitude)}, Lng ${toFixedNumber(longitude)} (save as address)`;
-  await supabaseClient.from("customers").upsert({ id: activeUser.id, latitude, longitude, full_name: document.getElementById("profile-full-name").value.trim() || null, phone: document.getElementById("profile-phone").value.trim() || null });
-  renderCart();
-}
-
-async function saveAddressFromDraft(){
-  if(!customerLocation){
-    alert("Set current or pinned location first.");
-    return;
-  }
-
-  const profileSaved = await saveProfile();
-  if(!profileSaved){ return; }
-
-  const label = document.getElementById("address-label-input").value.trim();
-  const addressLine = document.getElementById("address-line-input").value.trim();
-  if(!addressLine){
-    alert("Please enter complete address details before saving.");
-    return;
-  }
-
-  const { error } = await supabaseClient.from("addresses").insert({
-    customer_id: activeUser.id,
-    label: label || "Saved Address",
-    address_line: addressLine || null,
-    latitude: customerLocation.latitude,
-    longitude: customerLocation.longitude,
-    is_default: customerAddresses.length === 0
-  });
-
-  if(error){
-    setMessage(`Unable to save address: ${error.message}`);
-    return;
-  }
-
-  document.getElementById("address-label-input").value = "";
-  document.getElementById("address-line-input").value = "";
-  await loadCustomerAddresses();
-  setMessage("Address saved successfully.");
-}
-
-async function useCurrentLocation(){
-  if(!navigator.geolocation){
-    alert("Geolocation not supported on this device.");
-    return;
-  }
-
-  setMessage("Reading current location...");
-  navigator.geolocation.getCurrentPosition(async (position) => {
-    await saveCustomerLocation(position.coords.latitude, position.coords.longitude);
-    toggleMapPicker(false);
-    setMessage("Location saved successfully.");
-  }, (error) => {
-    setMessage(`Location failed: ${error.message}`);
-  }, { enableHighAccuracy: true, timeout: 10000 });
-}
-
-function updateDraftLabel(){
-  if(!pinnedLocationDraft){ return; }
-  document.getElementById("location-label").innerText = `Draft pin: Lat ${toFixedNumber(pinnedLocationDraft.latitude)}, Lng ${toFixedNumber(pinnedLocationDraft.longitude)} (tap Use This Pin)`;
-}
-
-function toggleMapPicker(open = null){
-  const mapEl = document.getElementById("map-picker");
-  const actions = document.getElementById("map-actions");
-  const shouldOpen = open === null ? mapEl.style.display === "none" : open;
-
-  mapEl.style.display = shouldOpen ? "block" : "none";
-  actions.style.display = shouldOpen ? "flex" : "none";
-  if(!shouldOpen){ return; }
-
-  const fallback = customerLocation || { latitude: 17.3850, longitude: 78.4867 };
-  pinnedLocationDraft = { ...fallback };
-
-  if(!map){
-    map = L.map("map-picker").setView([fallback.latitude, fallback.longitude], 13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
-    marker = L.marker([fallback.latitude, fallback.longitude], { draggable: true }).addTo(map);
-
-    marker.on("dragend", () => {
-      const location = marker.getLatLng();
-      pinnedLocationDraft = { latitude: location.lat, longitude: location.lng };
-      updateDraftLabel();
-    });
-
-    map.on("click", (event) => {
-      marker.setLatLng(event.latlng);
-      pinnedLocationDraft = { latitude: event.latlng.lat, longitude: event.latlng.lng };
-      updateDraftLabel();
-    });
-  } else {
-    map.setView([fallback.latitude, fallback.longitude], 13);
-    marker.setLatLng([fallback.latitude, fallback.longitude]);
-  }
-
-  updateDraftLabel();
-  setTimeout(() => map.invalidateSize(), 60);
-}
-
-async function confirmPinnedLocation(){
-  if(!pinnedLocationDraft){
-    alert("Drop a pin on map first.");
-    return;
-  }
-
-  await saveCustomerLocation(pinnedLocationDraft.latitude, pinnedLocationDraft.longitude);
-  toggleMapPicker(false);
-  setMessage("Pinned location saved.");
+function removeCart(i){
+cart.splice(i,1);
+renderCart();
 }
 
 async function placeOrder(){
-  if(placingOrder){ return; }
-  if(!cart.length){ alert("Add items to cart first."); return; }
-  if(!selectedAddress){ alert("Select a saved address before placing order."); return; }
 
-  placingOrder = true;
-  const orderButton = document.getElementById("place-order-btn");
-  orderButton.disabled = true;
-
-  const subtotalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const charges = getChargeSummary(subtotalAmount);
-  const restaurantId = cart[0].restaurantId;
-
-  const { data: order, error: orderError } = await supabaseClient
-    .from("orders")
-    .insert({
-      customer_id: activeUser.id,
-      restaurant_id: restaurantId,
-      status: "pending_payment",
-      total_amount: charges.finalAmount,
-      delivery_latitude: customerLocation.latitude,
-      delivery_longitude: customerLocation.longitude,
-      delivery_address_id: selectedAddress.id
-    })
-    .select("id")
-    .single();
-
-  if(orderError){
-    alert(orderError.message);
-    placingOrder = false;
-    orderButton.disabled = false;
-    return;
-  }
-
-  const orderItems = cart.map((item) => ({
-    order_id: order.id,
-    menu_item_id: item.menuItemId,
-    quantity: item.quantity,
-    unit_price: item.price
-  }));
-
-  const { error: itemsError } = await supabaseClient.from("order_items").insert(orderItems);
-  if(itemsError){
-    alert(itemsError.message);
-    placingOrder = false;
-    orderButton.disabled = false;
-    return;
-  }
-
-  cart = [];
-  renderCart();
-  setMessage(`Order ${order.id} placed successfully.`);
-
-  placingOrder = false;
-  orderButton.disabled = false;
-  await loadTracking();
+if(cart.length===0){
+alert("Cart empty");
+return;
 }
 
-function renderTimeline(status){
-  const currentIndex = ORDER_TIMELINE.indexOf(status);
-  return ORDER_TIMELINE.map((step, index) => {
-    const done = currentIndex >= index;
-    const icon = done ? "✅" : "○";
-    return `<div class='small'>${icon} ${step}</div>`;
-  }).join("");
+const total=cart.reduce((s,i)=>s+(i.price*i.qty),0);
+
+const {data:order,error}=await supabaseClient
+.from("orders")
+.insert({
+customer_id:activeUser.id,
+restaurant_id:currentRestaurant.id,
+status:"pending_verification",
+total_amount:total
+})
+.select("id")
+.single();
+
+if(error){
+alert(error.message);
+return;
 }
 
-async function loadTracking(){
-  const { data, error } = await supabaseClient
-    .from("orders")
-    .select("id,status,total_amount,created_at")
-    .eq("customer_id", activeUser.id)
-    .order("created_at", { ascending: false });
+const items=cart.map(i=>({
+order_id:order.id,
+item_id:i.item_id,
+quantity:i.qty,
+price:i.price
+}));
 
-  const container = document.getElementById("tracking-list");
-  container.innerHTML = "";
+await supabaseClient
+.from("order_items")
+.insert(items);
 
-  if(error){
-    container.innerHTML = `<p class='small'>${escapeHTML(error.message)}</p>`;
-    return;
-  }
+cart=[];
+renderCart();
 
-  const orders = data || [];
-  if(!orders.length){
-    container.innerHTML = "<p class='small'>No orders yet.</p>";
-    return;
-  }
+alert("Order placed");
 
-  orders.forEach((order) => {
-    const card = document.createElement("div");
-    card.className = "list-item";
-    card.innerHTML = `
-      <b>Order ${order.id}</b>
-      <span class='badge status-${order.status}'>${order.status}</span><br>
-      <span class='small'>${rupees(order.total_amount)} • ${new Date(order.created_at).toLocaleString()}</span>
-      <div style='margin-top:8px'>${renderTimeline(order.status)}</div>
-    `;
-    container.appendChild(card);
-  });
+await loadOrders();
+
 }
 
-(async function init(){
-  const user = await requireCustomer();
-  if(!user){ return; }
-  renderCart();
-  await loadRestaurants();
-  await loadTracking();
-})();
+async function loadOrders(){
+
+const {data,error}=await supabaseClient
+.from("orders")
+.select("id,status,total_amount,created_at")
+.eq("customer_id",activeUser.id)
+.order("created_at",{ascending:false});
+
+const el=document.getElementById("orders");
+el.innerHTML="";
+
+if(error){
+el.innerText=error.message;
+return;
+}
+
+data.forEach(o=>{
+
+const div=document.createElement("div");
+div.className="list-item";
+
+div.innerHTML=`
+<b>Order ${o.id}</b>
+<span class="badge">${o.status}</span>
+₹${o.total_amount}
+`;
+
+el.appendChild(div);
+
+});
+
+}
+
+init();
+
 </script>
+
 </body>
 </html>
+```
