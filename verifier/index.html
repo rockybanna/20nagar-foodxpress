@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Payment Verifier</title>
+<title>FoodXpress Admin</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -11,17 +11,26 @@
 
 <body>
 
-<div class="header">Payment Verification</div>
+<div class="header">FoodXpress Admin</div>
 
 <div class="page">
 
 <div class="row">
-<button class="button" onclick="loadPayments()">Refresh</button>
+<button class="button" onclick="loadDashboard()">Refresh</button>
 <button class="button secondary" onclick="logout()">Logout</button>
 </div>
 
-<h3>Pending Payments</h3>
-<div id="payments"></div>
+<h3>System Metrics</h3>
+<div id="metrics"></div>
+
+<h3>Restaurants</h3>
+<div id="restaurants"></div>
+
+<h3>Delivery Partners</h3>
+<div id="dps"></div>
+
+<h3>Recent Orders</h3>
+<div id="orders"></div>
 
 </div>
 
@@ -34,7 +43,7 @@ await supabaseClient.auth.signOut()
 window.location.href="../"
 }
 
-// ---------- INIT ----------
+// ---------------- INIT ----------------
 
 async function init(){
 
@@ -53,27 +62,67 @@ const {data:profile}=await supabaseClient
 .eq("id",user.id)
 .single()
 
-if(profile.role!=="payment_verifier"){
-alert("Verifier role required")
+if(profile.role!=="admin"){
+alert("Admin access only")
 window.location.href="../"
 return
 }
 
-await loadPayments()
+await loadDashboard()
 
 }
 
-// ---------- LOAD PAYMENTS ----------
+// ---------------- DASHBOARD ----------------
 
-async function loadPayments(){
+async function loadDashboard(){
+
+await loadRestaurants()
+await loadDPs()
+await loadOrders()
+await loadMetrics()
+
+}
+
+// ---------------- METRICS ----------------
+
+async function loadMetrics(){
+
+const {data:restaurants}=await supabaseClient
+.from("restaurants")
+.select("id,is_online")
+
+const {data:dps}=await supabaseClient
+.from("delivery_partners")
+.select("id,is_online")
+
+const {data:orders}=await supabaseClient
+.from("orders")
+.select("id,status")
+
+const onlineRestaurants=restaurants.filter(r=>r.is_online).length
+const onlineDPs=dps.filter(d=>d.is_online).length
+const activeOrders=orders.filter(o=>!["delivered","cancelled"].includes(o.status)).length
+
+const el=document.getElementById("metrics")
+
+el.innerHTML=`
+<div class="list-item">Restaurants Online: ${onlineRestaurants}</div>
+<div class="list-item">Delivery Partners Online: ${onlineDPs}</div>
+<div class="list-item">Active Orders: ${activeOrders}</div>
+`
+
+}
+
+// ---------------- RESTAURANTS ----------------
+
+async function loadRestaurants(){
 
 const {data,error}=await supabaseClient
-.from("payments")
-.select("id,order_id,status,proof_url")
-.eq("status","pending_verification")
-.order("id",{ascending:false})
+.from("restaurants")
+.select("id,name,is_online")
+.order("name")
 
-const container=document.getElementById("payments")
+const container=document.getElementById("restaurants")
 container.innerHTML=""
 
 if(error){
@@ -81,33 +130,19 @@ container.innerText=error.message
 return
 }
 
-if(!data.length){
-container.innerHTML="<p class='small'>No payments waiting</p>"
-return
-}
-
-data.forEach(p=>{
+data.forEach(r=>{
 
 const div=document.createElement("div")
 div.className="list-item"
 
 div.innerHTML=`
-<b>Payment ${p.id}</b>
-<br>
-Order: ${p.order_id}
-<br>
-${p.proof_url ? `<a href="${p.proof_url}" target="_blank">View Proof</a>` : "No proof uploaded"}
-<br><br>
-<button class="button">Approve</button>
-<button class="button secondary">Reject</button>
+<b>${r.name}</b>
+<span class="badge">${r.is_online?"online":"offline"}</span>
+<button class="button">Toggle</button>
 `
 
-div.querySelectorAll("button")[0].onclick=()=>{
-verify(p.id,p.order_id,"approved")
-}
-
-div.querySelectorAll("button")[1].onclick=()=>{
-verify(p.id,p.order_id,"rejected")
+div.querySelector("button").onclick=()=>{
+toggleRestaurant(r.id,!r.is_online)
 }
 
 container.appendChild(div)
@@ -116,36 +151,97 @@ container.appendChild(div)
 
 }
 
-// ---------- VERIFY ----------
-
-async function verify(paymentId,orderId,status){
+async function toggleRestaurant(id,status){
 
 await supabaseClient
-.from("payments")
-.update({
-status,
-verified_by:user.id,
-verified_at:new Date()
-})
-.eq("id",paymentId)
+.from("restaurants")
+.update({is_online:status})
+.eq("id",id)
 
-if(status==="approved"){
-
-await supabaseClient
-.from("orders")
-.update({status:"searching_dp"})
-.eq("id",orderId)
-
-}else{
-
-await supabaseClient
-.from("orders")
-.update({status:"cancelled"})
-.eq("id",orderId)
+await loadRestaurants()
 
 }
 
-await loadPayments()
+// ---------------- DELIVERY PARTNERS ----------------
+
+async function loadDPs(){
+
+const {data,error}=await supabaseClient
+.from("delivery_partners")
+.select("id,name,is_online")
+
+const container=document.getElementById("dps")
+container.innerHTML=""
+
+if(error){
+container.innerText=error.message
+return
+}
+
+data.forEach(dp=>{
+
+const div=document.createElement("div")
+div.className="list-item"
+
+div.innerHTML=`
+<b>${dp.name}</b>
+<span class="badge">${dp.is_online?"online":"offline"}</span>
+<button class="button">Toggle</button>
+`
+
+div.querySelector("button").onclick=()=>{
+toggleDP(dp.id,!dp.is_online)
+}
+
+container.appendChild(div)
+
+})
+
+}
+
+async function toggleDP(id,status){
+
+await supabaseClient
+.from("delivery_partners")
+.update({is_online:status})
+.eq("id",id)
+
+await loadDPs()
+
+}
+
+// ---------------- ORDERS ----------------
+
+async function loadOrders(){
+
+const {data,error}=await supabaseClient
+.from("orders")
+.select("id,status,total_amount,created_at")
+.order("created_at",{ascending:false})
+.limit(20)
+
+const container=document.getElementById("orders")
+container.innerHTML=""
+
+if(error){
+container.innerText=error.message
+return
+}
+
+data.forEach(o=>{
+
+const div=document.createElement("div")
+div.className="list-item"
+
+div.innerHTML=`
+<b>Order ${o.id}</b>
+<span class="badge">${o.status}</span>
+₹${o.total_amount}
+`
+
+container.appendChild(div)
+
+})
 
 }
 
