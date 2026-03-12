@@ -1,145 +1,290 @@
+```html
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Delivery Partner Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="../css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="../js/config.js"></script>
+<title>Delivery Partner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/config.js"></script>
 </head>
+
 <body>
-<div class="header">Delivery Dashboard</div>
-<div class="page grid">
-  <div class="card">
-    <div class="row">
-      <button class="button" onclick="refreshDeliveryData()">Refresh</button>
-      <button class="button secondary" onclick="toggleAvailability()" id="availability-btn">Go Online</button>
-      <button class="button secondary" onclick="logout()">Logout</button>
-    </div>
-    <p id="dp-msg" class="small"></p>
-  </div>
-  <div id="dp-metrics" class="dashboard-grid"></div>
-  <div class="grid cols-2">
-    <div class="card"><h3 class="card-title">Orders Ready for Pickup</h3><div id="ready-orders"></div></div>
-    <div class="card"><h3 class="card-title">My Active Orders</h3><div id="my-orders"></div></div>
-  </div>
-  <div class="card"><h3 class="card-title">Earnings & Accounting</h3><div id="dp-accounting"></div></div>
+
+<div class="header">Delivery Partner</div>
+
+<div class="page">
+
+<div class="row">
+<button class="button" onclick="refresh()">Refresh</button>
+<button class="button secondary" onclick="toggleOnline()" id="online-btn">Go Online</button>
+<button class="button ghost" onclick="logout()">Logout</button>
 </div>
+
+<h3>Available Orders</h3>
+<div id="queue"></div>
+
+<h3>My Active Orders</h3>
+<div id="my-orders"></div>
+
+</div>
+
 <script>
-let dpUser = null;
-let dpId = null;
-let online = false;
-function setMsg(text){ document.getElementById("dp-msg").innerText = text; }
-async function logout(){ await supabaseClient.auth.signOut(); window.location.href = "../"; }
 
-async function requireDp(){
-  const { data } = await supabaseClient.auth.getSession();
-  if(!data.session){ window.location.href = "../"; return false; }
-  dpUser = data.session.user;
-  const { data: profile, error } = await supabaseClient.from("users").select("role,email").eq("id", dpUser.id).single();
-  if(error || profile.role !== "delivery_partner"){ alert("Only delivery partner role allowed."); window.location.href = "../"; return false; }
+let user=null
+let dpId=null
+let online=false
 
-  let { data: dp } = await supabaseClient.from("delivery_partners").select("id,status,name").eq("id", dpUser.id).maybeSingle();
-  if(!dp){
-    await supabaseClient.from("delivery_partners").insert({ id: dpUser.id, name: profile.email || "Delivery Partner", status: "offline" });
-    dp = { id: dpUser.id, status: "offline" };
-  }
-  dpId = dp.id;
-  online = dp.status === "online";
-  renderAvailability();
-  return true;
+async function logout(){
+await supabaseClient.auth.signOut()
+window.location.href="../"
 }
 
-function renderAvailability(){ document.getElementById("availability-btn").innerText = online ? "Go Offline" : "Go Online"; }
-async function toggleAvailability(){
-  const next = online ? "offline" : "online";
-  const { error } = await supabaseClient.from("delivery_partners").update({ status: next }).eq("id", dpId);
-  if(error){ alert(error.message); return; }
-  online = !online;
-  renderAvailability();
-  setMsg(`You are now ${next}.`);
+// ---------------- INIT ----------------
+
+async function init(){
+
+const {data}=await supabaseClient.auth.getSession()
+
+if(!data.session){
+window.location.href="../"
+return
 }
 
-function renderMetrics(readyOrders, myOrders){
-  const picked = myOrders.filter((o) => o.status === "picked_up").length;
-  document.getElementById("dp-metrics").innerHTML = `<div class='metric'><h4>Ready Nearby</h4><p>${readyOrders.length}</p></div><div class='metric'><h4>My Active Orders</h4><p>${myOrders.length}</p></div><div class='metric'><h4>Picked Up</h4><p>${picked}</p></div>`;
+user=data.session.user
+
+const {data:profile}=await supabaseClient
+.from("users")
+.select("role")
+.eq("id",user.id)
+.single()
+
+if(profile.role!=="delivery_partner"){
+alert("Only delivery partners allowed")
+window.location.href="../"
+return
 }
 
-async function loadReadyOrders(){
-  const { data, error } = await supabaseClient.from("orders").select("id,total_amount,status,distance_km,payments(status)").eq("status", "ready_for_pickup").is("dp_id", null).limit(20);
-  const container = document.getElementById("ready-orders");
-  container.innerHTML = "";
-  if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
-  const ready = (data || []).filter((o) => (o.payments?.[0]?.status || "pending") === "approved");
-  if(!ready.length){ container.innerHTML = "<p class='small'>No ready orders available.</p>"; return []; }
-  ready.forEach((order) => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerHTML = `<b>Order ${order.id}</b><br><span class='small'>Total: ₹${Number(order.total_amount).toFixed(2)} • Distance: ${(Number(order.distance_km) || 0).toFixed(2)} km</span><br><button class='button' onclick="acceptOrder('${order.id}')">Accept Delivery</button>`;
-    container.appendChild(div);
-  });
-  return ready;
+dpId=user.id
+
+// ensure dp row exists
+const {data:dp}=await supabaseClient
+.from("delivery_partners")
+.select("id,is_online")
+.eq("id",dpId)
+.maybeSingle()
+
+if(!dp){
+await supabaseClient
+.from("delivery_partners")
+.insert({id:dpId,name:user.email,is_online:false})
+}else{
+online=dp.is_online
 }
 
-async function loadMyOrders(){
-  const { data, error } = await supabaseClient.from("orders").select("id,status,total_amount,distance_km,payments(status)").eq("dp_id", dpId).in("status", ["picked_up", "ready_for_pickup"]).order("id", { ascending: false });
-  const container = document.getElementById("my-orders");
-  container.innerHTML = "";
-  if(error){ container.innerHTML = `<p class='small'>${error.message}</p>`; return []; }
-  if(!(data || []).length){ container.innerHTML = "<p class='small'>No active deliveries.</p>"; return []; }
-  data.forEach((order) => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    div.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><div class='row' style='margin-top:8px'><button class='button' onclick="pickupOrder('${order.id}')" ${order.status !== "ready_for_pickup" ? "disabled" : ""}>Picked Up</button><button class='button secondary' onclick="deliverOrder('${order.id}')" ${order.status !== "picked_up" ? "disabled" : ""}>Delivered</button></div>`;
-    container.appendChild(div);
-  });
-  return data;
+renderOnlineButton()
+
+await refresh()
+
 }
+
+function renderOnlineButton(){
+document.getElementById("online-btn").innerText=
+online?"Go Offline":"Go Online"
+}
+
+// ---------------- ONLINE ----------------
+
+async function toggleOnline(){
+
+online=!online
+
+await supabaseClient
+.from("delivery_partners")
+.update({is_online:online})
+.eq("id",dpId)
+
+renderOnlineButton()
+
+}
+
+// ---------------- QUEUE ----------------
+
+async function loadQueue(){
+
+const {data,error}=await supabaseClient
+.from("dp_order_queue")
+.select("order_id,created_at")
+.eq("status","waiting")
+.order("created_at",{ascending:true})
+
+const container=document.getElementById("queue")
+container.innerHTML=""
+
+if(error){
+container.innerText=error.message
+return
+}
+
+if(!data.length){
+container.innerHTML="<p class='small'>No orders waiting</p>"
+return
+}
+
+data.forEach(o=>{
+
+const div=document.createElement("div")
+div.className="list-item"
+
+div.innerHTML=`
+<b>Order ${o.order_id}</b>
+<button class="button">Accept</button>
+`
+
+div.querySelector("button").onclick=()=>{
+acceptOrder(o.order_id)
+}
+
+container.appendChild(div)
+
+})
+
+}
+
+// ---------------- ACCEPT ----------------
 
 async function acceptOrder(orderId){
-  if(!online){ alert("Go online first."); return; }
-  const { count } = await supabaseClient.from("orders").select("id", { count: "exact", head: true }).eq("dp_id", dpId).in("status", ["ready_for_pickup", "picked_up"]);
-  if((count || 0) >= 2){ alert("Max 2 active orders allowed."); return; }
-  const { error } = await supabaseClient.from("orders").update({ dp_id: dpId }).eq("id", orderId).eq("status", "ready_for_pickup").is("dp_id", null);
-  if(error){ alert(error.message); return; }
-  await refreshDeliveryData();
+
+if(!online){
+alert("Go online first")
+return
 }
 
-async function pickupOrder(orderId){
-  const { error } = await supabaseClient.from("orders").update({ status: "picked_up" }).eq("id", orderId).eq("dp_id", dpId);
-  if(error){ alert(error.message); return; }
-  await supabaseClient.from("delivery_logs").insert({ order_id: orderId, dp_id: dpId, status: "picked_up" });
-  await refreshDeliveryData();
+const {data,error}=await supabaseClient.rpc(
+"dp_accept_order",
+{
+p_order_id:orderId,
+p_dp_id:dpId
+}
+)
+
+if(error){
+alert(error.message)
+return
 }
 
-async function deliverOrder(orderId){
-  const { data: order } = await supabaseClient.from("orders").select("distance_km,total_amount").eq("id", orderId).single();
-  const { error } = await supabaseClient.from("orders").update({ status: "delivered" }).eq("id", orderId).eq("dp_id", dpId);
-  if(error){ alert(error.message); return; }
-  await supabaseClient.from("delivery_logs").insert({ order_id: orderId, dp_id: dpId, status: "delivered" });
-  const distance = Number(order?.distance_km || 0);
-  const earning = Math.max(30, distance * 9);
-  await supabaseClient.from("dp_settlements").upsert({ dp_id: dpId, order_id: orderId, amount: earning, status: "pending" }, { onConflict: "dp_id,order_id" });
-  await refreshDeliveryData();
+if(data===false){
+alert("Another DP accepted first")
 }
 
-async function loadAccounting(){
-  const { data } = await supabaseClient.from("dp_settlements").select("amount,status,order_id").eq("dp_id", dpId).order("order_id", { ascending: false }).limit(30);
-  const total = (data || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-  const pending = (data || []).filter((r) => r.status !== "paid").reduce((s, r) => s + Number(r.amount || 0), 0);
-  document.getElementById("dp-accounting").innerHTML = `<div class='list-item'><b>Total Earnings</b><br><span class='small'>₹${total.toFixed(2)}</span></div><div class='list-item'><b>Pending Payout</b><br><span class='small'>₹${pending.toFixed(2)}</span></div>`;
+await refresh()
+
 }
 
-async function refreshDeliveryData(){
-  setMsg("Refreshing delivery data...");
-  const ready = await loadReadyOrders();
-  const mine = await loadMyOrders();
-  renderMetrics(ready, mine);
-  await loadAccounting();
-  setMsg("Delivery data loaded.");
+// ---------------- MY ORDERS ----------------
+
+async function loadMyOrders(){
+
+const {data,error}=await supabaseClient
+.from("orders")
+.select("id,status,total_amount")
+.eq("dp_id",dpId)
+.in("status",["accepted","picked_up"])
+
+const container=document.getElementById("my-orders")
+container.innerHTML=""
+
+if(error){
+container.innerText=error.message
+return
 }
 
-(async function init(){ const ok = await requireDp(); if(!ok) return; await refreshDeliveryData(); })();
+if(!data.length){
+container.innerHTML="<p class='small'>No active deliveries</p>"
+return
+}
+
+data.forEach(o=>{
+
+const div=document.createElement("div")
+div.className="list-item"
+
+div.innerHTML=`
+<b>Order ${o.id}</b>
+<span class="badge">${o.status}</span>
+<button class="button">Picked Up</button>
+<button class="button secondary">Delivered</button>
+`
+
+div.querySelectorAll("button")[0].onclick=()=>{
+pickup(o.id)
+}
+
+div.querySelectorAll("button")[1].onclick=()=>{
+deliver(o.id)
+}
+
+container.appendChild(div)
+
+})
+
+}
+
+// ---------------- PICKUP ----------------
+
+async function pickup(orderId){
+
+await supabaseClient
+.from("orders")
+.update({status:"picked_up"})
+.eq("id",orderId)
+.eq("dp_id",dpId)
+
+await supabaseClient
+.from("delivery_logs")
+.insert({
+order_id:orderId,
+dp_id:dpId,
+picked_up_at:new Date()
+})
+
+await refresh()
+
+}
+
+// ---------------- DELIVER ----------------
+
+async function deliver(orderId){
+
+await supabaseClient
+.from("orders")
+.update({status:"delivered"})
+.eq("id",orderId)
+.eq("dp_id",dpId)
+
+await supabaseClient
+.from("delivery_logs")
+.insert({
+order_id:orderId,
+dp_id:dpId,
+delivered_at:new Date()
+})
+
+await refresh()
+
+}
+
+// ---------------- REFRESH ----------------
+
+async function refresh(){
+await loadQueue()
+await loadMyOrders()
+}
+
+init()
+
 </script>
+
 </body>
 </html>
+```
