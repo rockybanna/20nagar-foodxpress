@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>FoodXpress Customer</title>
+<title>FoodXpress Customer Panel</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../css/style.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -9,44 +9,69 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="../js/config.js"></script>
 </head>
-<body>
-<div class="header">FoodXpress • Discover</div>
-<div class="page">
-  <div class="sticky-search">
-    <div class="row">
-      <input id="search-input" placeholder="Search restaurant or cuisine..." oninput="renderRestaurants()">
-      <button class="button ghost" onclick="loadRestaurants()">Refresh</button>
-      <button class="button secondary" onclick="toggleCart()">Cart <span id="cart-count">(0)</span></button>
-      <button class="button secondary" onclick="logout()">Logout</button>
+<body class="customer-panel">
+<div class="header">FoodXpress Customer Panel</div>
+<div class="page customer-page">
+  <section class="hero-banner">
+    <div>
+      <p class="eyebrow">Fast delivery • Fresh food</p>
+      <h1>Order from top restaurants in minutes</h1>
+      <p class="small">Browse nearby places, customize your food, and track every order in real time.</p>
     </div>
-    <p id="customer-msg" class="small"></p>
-  </div>
+    <div class="hero-actions">
+      <button class="button secondary" onclick="toggleCart()">Open Cart <span id="cart-count">(0)</span></button>
+      <button class="button ghost" onclick="loadRestaurants()">Refresh</button>
+      <button class="button ghost" onclick="logout()">Logout</button>
+    </div>
+  </section>
 
-  <div class="card">
-    <h3 class="card-title">Delivery Location (Top Priority)</h3>
+  <section class="card">
+    <div class="search-row">
+      <input id="search-input" placeholder="Search restaurant, dish, or cuisine" oninput="renderRestaurants()">
+      <p id="customer-msg" class="small"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3 class="card-title">Set Delivery Location</h3>
     <div class="row">
       <button class="button" onclick="useCurrentLocation()">Use Current Location</button>
-      <button class="button secondary" onclick="toggleMapPicker(true)">Pin Drop on Map</button>
+      <button class="button secondary" onclick="toggleMapPicker(true)">Pin on Map</button>
     </div>
     <p id="location-label" class="small">Location not set.</p>
     <div id="map-picker" style="height:300px;border-radius:12px;display:none;margin-top:10px;border:1px solid #e7e7ec"></div>
     <div id="map-actions" class="row" style="display:none;margin-top:10px">
-      <button class="button" onclick="confirmPinnedLocation()">Set this location</button>
+      <button class="button" onclick="confirmPinnedLocation()">Confirm Location</button>
       <button class="button ghost" onclick="toggleMapPicker(false)">Cancel</button>
     </div>
-  </div>
+  </section>
 
-  <div class="card"><h3 class="card-title">Popular Near You</h3><div id="restaurant-list" class="restaurant-grid"></div></div>
-  <div class="card"><h3 class="card-title">Menu</h3><p class="small">Single cart rule: one order = one restaurant.</p><div id="menu-list" class="menu-grid">Select a restaurant to view menu.</div></div>
-  <div class="card"><h3 class="card-title">Order Tracking</h3><div id="tracking-list"></div></div>
+  <section class="card">
+    <h3 class="card-title">Popular Near You</h3>
+    <div id="restaurant-list" class="restaurant-grid"></div>
+  </section>
 
-  <div id="payment-proof-card" class="card" style="display:none">
+  <section class="card">
+    <h3 class="card-title">Menu</h3>
+    <p class="small">Single-cart rule: one order can contain items from only one restaurant.</p>
+    <div id="menu-list" class="menu-grid">Select a restaurant to view menu.</div>
+  </section>
+
+  <section id="payment-proof-card" class="card" style="display:none">
     <h3 class="card-title">Complete Payment</h3>
-    <img src="https://uouwizrknwrqqynodplv.supabase.co/storage/v1/object/public/company_assets/payment_qr.jpg" style="width:220px;border-radius:10px;border:1px solid #ddd">
+    <img src="https://uouwizrknwrqqynodplv.supabase.co/storage/v1/object/public/company_assets/payment_qr.jpg" alt="Payment QR" style="width:220px;border-radius:10px;border:1px solid #ddd">
     <p id="pending-order-label" class="small"></p>
-    <div class="row"><input id="payment-proof-input" type="file" accept="image/*"><button class="button" onclick="uploadPaymentProof()">Upload Proof</button></div>
+    <div class="row">
+      <input id="payment-proof-input" type="file" accept="image/*">
+      <button class="button" onclick="uploadPaymentProof()">Upload Proof</button>
+    </div>
     <p id="payment-proof-msg" class="small"></p>
-  </div>
+  </section>
+
+  <section class="card">
+    <h3 class="card-title">Live Order Tracking</h3>
+    <div id="tracking-list"></div>
+  </section>
 </div>
 
 <div id="cart-drawer" class="cart-drawer">
