@@ -135,3 +135,19 @@ input, select, textarea{
   .menu-grid{grid-template-columns:repeat(3,1fr);}
   .dashboard-grid{grid-template-columns:repeat(3,1fr);}
 }
+
+/* Customer panel enhancements */
+.customer-panel{background:linear-gradient(180deg,#fff7ed 0%,#f8fafc 180px,#f8fafc 100%);} 
+.customer-page{display:grid;gap:14px;}
+.hero-banner{display:flex;justify-content:space-between;gap:18px;align-items:flex-end;background:linear-gradient(135deg,#fb923c,#f43f5e);color:#fff;padding:22px;border-radius:16px;box-shadow:0 12px 28px rgba(244,63,94,.2);} 
+.hero-banner h1{margin:4px 0 8px;font-size:clamp(22px,3.2vw,34px);line-height:1.1;}
+.hero-banner .small{color:rgba(255,255,255,.9);max-width:560px;}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin:0;opacity:.9;}
+.hero-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
+.search-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+.search-row input{flex:1;min-width:220px;}
+.search-row .small{margin:0;}
+@media (max-width:720px){
+  .hero-banner{flex-direction:column;align-items:flex-start;}
+  .hero-actions{justify-content:flex-start;}
+}
