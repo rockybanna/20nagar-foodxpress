@@ -57,16 +57,7 @@
     <div id="menu-list" class="menu-grid">Select a restaurant to view menu.</div>
   </section>
 
-  <section id="payment-proof-card" class="card" style="display:none">
-    <h3 class="card-title">Complete Payment</h3>
-    <img src="https://uouwizrknwrqqynodplv.supabase.co/storage/v1/object/public/company_assets/payment_qr.jpg" alt="Payment QR" style="width:220px;border-radius:10px;border:1px solid #ddd">
-    <p id="pending-order-label" class="small"></p>
-    <div class="row">
-      <input id="payment-proof-input" type="file" accept="image/*">
-      <button class="button" onclick="uploadPaymentProof()">Upload Proof</button>
-    </div>
-    <p id="payment-proof-msg" class="small"></p>
-  </section>
+  <section id="payment-proof-card" class="card" style="display:none"></section>
 
   <section class="card">
     <h3 class="card-title">Live Order Tracking</h3>
@@ -77,61 +68,61 @@
 <div id="cart-drawer" class="cart-drawer">
   <div class="cart-header"><span>Your Cart</span><button class="button ghost" onclick="toggleCart()">Close</button></div>
   <div class="cart-body">
-    <p class="small">Order value rules: ₹99 minimum, ₹1800 maximum.</p>
     <p id="cart-restaurant-label" class="small"></p>
     <div id="cart-items"></div>
-    <div class="row" style="margin-top:12px"><span class="small" style="flex:1">Payment mode: QR transfer</span><button class="button" id="place-order-btn" onclick="placeOrder()">Place Order</button></div>
+    <div class="row" style="margin-top:12px"><span class="small" style="flex:1">Payment mode: submit proof after placing order</span><button class="button" id="place-order-btn" onclick="placeOrder()">Place Order</button></div>
     <p id="cart-total" style="font-weight:700"></p>
   </div>
 </div>
 
-<div id="addons-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:120;align-items:flex-end;justify-content:center;">
-  <div style="background:#fff;width:min(100%,560px);border-radius:16px 16px 0 0;padding:14px;max-height:78vh;overflow:auto;">
-    <div class="row" style="justify-content:space-between;align-items:center"><b id="addons-title"></b><button class="button ghost" onclick="closeAddonsModal()">Close</button></div>
-    <p id="addons-price" class="small"></p>
-    <div class="row" style="align-items:center;margin-bottom:8px"><span class="small">Quantity</span><button class="button ghost" onclick="changeModalQty(-1)">-</button><b id="addons-qty">1</b><button class="button ghost" onclick="changeModalQty(1)">+</button></div>
-    <div id="addons-list"></div>
-    <div class="row" style="margin-top:12px"><button class="button" style="width:100%" onclick="confirmAddWithAddons()">Add to Cart</button></div>
-  </div>
-</div>
-
 <script>
+const ORDER_TIMELINE = [
+  "pending_payment",
+  "payment_submitted",
+  "confirmed",
+  "preparing",
+  "ready_for_pickup",
+  "out_for_delivery",
+  "delivered"
+];
+
 let activeUser = null;
 let allRestaurants = [];
+let currentRestaurant = null;
 let cart = [];
-let pendingVerification = null;
 let customerLocation = null;
 let pinnedLocationDraft = null;
 let map = null;
 let marker = null;
 let placingOrder = false;
-let menuAddonsMap = {};
-let currentMenuContext = null;
-let modalState = null;
-const PAYMENT_PROOF_BUCKET = "payment_proofs";
 
 function setMessage(text){ document.getElementById("customer-msg").innerText = text; }
 function rupees(v){ return `₹${Number(v || 0).toFixed(2)}`; }
 function escapeHTML(t){ return String(t || "").replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 
-function getAddonName(a){ return a.name || a.title || "Addon"; }
-function getAddonPrice(a){ return Number(a.price ?? a.addon_price ?? a.amount ?? 0); }
-function getAddonMenuItemId(a){ return a.menu_item_id || a.menu_id || a.item_id || null; }
-
 async function requireCustomer(){
   const { data } = await supabaseClient.auth.getSession();
   if(!data.session){ window.location.href = "../"; return null; }
-  const user = data.session.user;
-  const { data: profile } = await supabaseClient.from("users").select("role").eq("id", user.id).single();
-  if(!profile || profile.role !== "customer"){ alert("Customer role required"); window.location.href = "../"; return null; }
-  activeUser = user;
 
+  const user = data.session.user;
+  const { data: profile, error: roleError } = await supabaseClient.from("users").select("role").eq("id", user.id).single();
+  if(roleError || profile.role !== "customer"){
+    alert("Customer role required");
+    window.location.href = "../";
+    return null;
+  }
+
+  activeUser = user;
   const { data: customer } = await supabaseClient.from("customers").select("id,latitude,longitude").eq("id", user.id).maybeSingle();
-  if(!customer){ await supabaseClient.from("customers").upsert({ id: user.id }); }
-  if(customer?.latitude && customer?.longitude){
+  if(!customer){
+    await supabaseClient.from("customers").upsert({ id: user.id });
+  }
+
+  if(customer?.latitude !== null && customer?.longitude !== null){
     customerLocation = { latitude: Number(customer.latitude), longitude: Number(customer.longitude) };
     document.getElementById("location-label").innerText = `Lat ${customerLocation.latitude.toFixed(5)}, Lng ${customerLocation.longitude.toFixed(5)}`;
   }
+
   return user;
 }
 
@@ -139,171 +130,117 @@ async function logout(){ await supabaseClient.auth.signOut(); window.location.hr
 
 async function loadRestaurants(){
   setMessage("Loading restaurants...");
-  const { data } = await supabaseClient.from("restaurants").select("id,name,is_online").eq("is_online", true).order("name", { ascending: true });
-  const seen = new Set();
-  allRestaurants = (data || []).filter((r) => {
-    if(seen.has(r.id)){ return false; }
-    seen.add(r.id);
-    return true;
-  });
+  const { data, error } = await supabaseClient
+    .from("restaurants")
+    .select("id,name,cuisine,rating,description")
+    .order("name", { ascending: true });
+
+  if(error){
+    setMessage(error.message);
+    return;
+  }
+
+  allRestaurants = data || [];
   renderRestaurants();
   setMessage(`Loaded ${allRestaurants.length} restaurants`);
 }
 
 function renderRestaurants(){
   const q = document.getElementById("search-input").value.trim().toLowerCase();
-  const filtered = allRestaurants.filter((r) => r.name.toLowerCase().includes(q));
+  const filtered = allRestaurants.filter((r) => {
+    const searchText = `${r.name || ""} ${r.cuisine || ""} ${r.description || ""}`.toLowerCase();
+    return searchText.includes(q);
+  });
+
   const container = document.getElementById("restaurant-list");
   container.innerHTML = "";
-  if(!filtered.length){ container.innerHTML = "<p class='small'>No restaurants found.</p>"; return; }
-  filtered.forEach((r) => {
-    const div = document.createElement("div");
-    div.className = "card restaurant-card";
-    div.innerHTML = `<b>${escapeHTML(r.name)}</b><button class='button' onclick="loadMenu('${r.id}','${escapeHTML(r.name)}')">View Menu</button>`;
-    container.appendChild(div);
-  });
-}
 
-async function loadMenu(restaurantId, restaurantName){
-  currentMenuContext = { restaurantId, restaurantName };
-  setMessage(`Loading menu for ${restaurantName}`);
-  const { data } = await supabaseClient.from("menu_items").select("id,restaurant_id,name,description,price").eq("restaurant_id", restaurantId).order("name", { ascending: true });
-  const items = data || [];
-  menuAddonsMap = await loadAddonsForItems(items, restaurantId);
-
-  const container = document.getElementById("menu-list");
-  container.innerHTML = "";
-  if(!items.length){ container.innerHTML = "<p class='small'>No menu items.</p>"; return; }
-  items.forEach((item) => {
-    const addonCount = (menuAddonsMap[item.id] || []).length;
-    const div = document.createElement("div");
-    div.className = "card";
-    div.innerHTML = `<b>${escapeHTML(item.name)}</b>
-      <p class='small'>${escapeHTML(item.description || "")}</p>
-      <p class='small'>${addonCount ? `${addonCount} addon options available` : "No addons"}</p>
-      <div class='row' style='align-items:center'>
-        <span style='font-weight:700;flex:1'>${rupees(item.price)}</span>
-        <button class='button ghost' onclick="changeMenuQty('${item.id}',-1)">-</button>
-        <b id='qty-${item.id}' style='min-width:22px;text-align:center'>1</b>
-        <button class='button ghost' onclick="changeMenuQty('${item.id}',1)">+</button>
-        <button class='button add-item-btn'>Add</button>
-      </div>`;
-    div.querySelector('.add-item-btn').addEventListener('click', () => openAddonsModal(item, restaurantName));
-    container.appendChild(div);
-  });
-}
-
-async function loadAddonsForItems(items, restaurantId){
-  const itemIds = items.map((i) => i.id);
-  const out = {};
-  if(!itemIds.length){ return out; }
-
-  let addonRows = [];
-  const addonItemColumns = ["menu_item_id", "menu_id", "item_id"];
-  for(const column of addonItemColumns){
-    const response = await supabaseClient.from("addons").select("*").in(column, itemIds);
-    if(!response.error){
-      addonRows = response.data || [];
-      break;
-    }
-  }
-
-  if(!addonRows.length && restaurantId){
-    const restaurantScoped = await supabaseClient.from("addons").select("*").eq("restaurant_id", restaurantId);
-    if(!restaurantScoped.error){ addonRows = restaurantScoped.data || []; }
-  }
-
-  addonRows.forEach((a) => {
-    const menuItemId = getAddonMenuItemId(a);
-    if(!menuItemId){ return; }
-    if(!out[menuItemId]){ out[menuItemId] = []; }
-    out[menuItemId].push(a);
-  });
-  return out;
-}
-
-function changeMenuQty(itemId, delta){
-  const el = document.getElementById(`qty-${itemId}`);
-  if(!el){ return; }
-  const next = Math.max(1, Number(el.innerText || 1) + delta);
-  el.innerText = next;
-}
-
-function openAddonsModal(item, restaurantName){
-  const qty = Number(document.getElementById(`qty-${item.id}`)?.innerText || 1);
-  const addons = menuAddonsMap[item.id] || [];
-  modalState = { item, restaurantName, qty, selected: [] };
-
-  document.getElementById("addons-title").innerText = item.name;
-  document.getElementById("addons-price").innerText = `Base price ${rupees(item.price)}`;
-  document.getElementById("addons-qty").innerText = String(qty);
-
-  const list = document.getElementById("addons-list");
-  list.innerHTML = "";
-  if(!addons.length){ list.innerHTML = "<p class='small'>No addons for this item. Tap Add to Cart.</p>"; }
-  addons.forEach((a) => {
-    const row = document.createElement("label");
-    row.className = "list-item";
-    row.style.display = "block";
-    row.style.marginBottom = "8px";
-    row.innerHTML = `<input type='checkbox' value='${escapeHTML(a.id)}' onchange='toggleAddonSelection("${escapeHTML(a.id)}")' style='width:auto;margin-right:8px'>${escapeHTML(getAddonName(a))} <span class='small'>+ ${rupees(getAddonPrice(a))}</span>`;
-    list.appendChild(row);
-  });
-
-  document.getElementById("addons-modal").style.display = "flex";
-}
-
-function closeAddonsModal(){ document.getElementById("addons-modal").style.display = "none"; modalState = null; }
-
-function changeModalQty(delta){
-  if(!modalState){ return; }
-  modalState.qty = Math.max(1, modalState.qty + delta);
-  document.getElementById("addons-qty").innerText = String(modalState.qty);
-}
-
-function toggleAddonSelection(addonId){
-  if(!modalState){ return; }
-  if(modalState.selected.includes(addonId)){ modalState.selected = modalState.selected.filter((id) => id !== addonId); }
-  else { modalState.selected.push(addonId); }
-}
-
-function confirmAddWithAddons(){
-  if(!modalState){ return; }
-  const item = modalState.item;
-  const addons = (menuAddonsMap[item.id] || []).filter((a) => modalState.selected.includes(String(a.id)));
-  addToCart(item, modalState.restaurantName, modalState.qty, addons);
-  closeAddonsModal();
-}
-
-function getCartKey(itemId, addons){
-  const addonKey = (addons || []).map((a) => a.id).sort().join("|");
-  return `${itemId}::${addonKey}`;
-}
-
-function addToCart(item, restaurantName, qty, addons){
-  if(cart.length && cart[0].restaurantId !== item.restaurant_id){
-    alert(`Single restaurant per order. Clear cart before adding from ${restaurantName}.`);
+  if(!filtered.length){
+    container.innerHTML = "<p class='small'>No restaurants found.</p>";
     return;
   }
 
-  const addonUnit = (addons || []).reduce((s, a) => s + getAddonPrice(a), 0);
-  const unitPrice = Number(item.price) + addonUnit;
-  const key = getCartKey(item.id, addons);
-  const existing = cart.find((i) => i.key === key);
-  if(existing){ existing.quantity += qty; }
-  else {
+  filtered.forEach((restaurant) => {
+    const card = document.createElement("div");
+    card.className = "card restaurant-card";
+    card.style.cursor = "pointer";
+    card.innerHTML = `
+      <b>${escapeHTML(restaurant.name)}</b>
+      <p class='small'>Cuisine: ${escapeHTML(restaurant.cuisine || "Not specified")}</p>
+      <p class='small'>Rating: ${Number(restaurant.rating || 0).toFixed(1)}</p>
+      <p class='small'>${escapeHTML(restaurant.description || "No description")}</p>
+      <button class='button'>View Menu</button>
+    `;
+    card.addEventListener("click", () => loadMenu(restaurant));
+    container.appendChild(card);
+  });
+}
+
+async function loadMenu(restaurant){
+  currentRestaurant = restaurant;
+  setMessage(`Loading menu for ${restaurant.name}...`);
+
+  const { data, error } = await supabaseClient
+    .from("menu_items")
+    .select("id,restaurant_id,name,price,is_available")
+    .eq("restaurant_id", restaurant.id)
+    .eq("is_available", true)
+    .order("name", { ascending: true });
+
+  const container = document.getElementById("menu-list");
+  container.innerHTML = "";
+
+  if(error){
+    container.innerHTML = `<p class='small'>${escapeHTML(error.message)}</p>`;
+    return;
+  }
+
+  const items = data || [];
+  if(!items.length){
+    container.innerHTML = "<p class='small'>No available menu items.</p>";
+    return;
+  }
+
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "card";
+    row.innerHTML = `
+      <b>${escapeHTML(item.name)}</b>
+      <div class='row' style='align-items:center;margin-top:8px'>
+        <span style='font-weight:700;flex:1'>${rupees(item.price)}</span>
+        <button class='button'>Add to cart</button>
+      </div>
+    `;
+    row.querySelector("button").addEventListener("click", (event) => {
+      event.stopPropagation();
+      addToCart(item, restaurant);
+    });
+    container.appendChild(row);
+  });
+
+  setMessage(`Showing ${items.length} menu items for ${restaurant.name}`);
+}
+
+function addToCart(item, restaurant){
+  if(cart.length && cart[0].restaurantId !== restaurant.id){
+    alert(`One cart can contain items from only one restaurant. Clear your cart to order from ${restaurant.name}.`);
+    return;
+  }
+
+  const existing = cart.find((line) => line.menuItemId === item.id);
+  if(existing){
+    existing.quantity += 1;
+  } else {
     cart.push({
-      key,
-      id: item.id,
+      menuItemId: item.id,
       name: item.name,
-      basePrice: Number(item.price),
-      price: unitPrice,
-      quantity: qty,
-      restaurantId: item.restaurant_id,
-      restaurantName,
-      addons: (addons || []).map((a) => ({ id: a.id, name: getAddonName(a), price: getAddonPrice(a) }))
+      price: Number(item.price),
+      quantity: 1,
+      restaurantId: restaurant.id,
+      restaurantName: restaurant.name
     });
   }
+
   renderCart();
 }
 
@@ -314,33 +251,45 @@ function updateCartItem(index, delta){
   renderCart();
 }
 
-function removeCartItem(index){ cart.splice(index, 1); renderCart(); }
+function removeCartItem(index){
+  cart.splice(index, 1);
+  renderCart();
+}
 
 function renderCart(){
-  const container = document.getElementById("cart-items");
-  const total = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  const itemContainer = document.getElementById("cart-items");
+  const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+  document.getElementById("cart-count").innerText = `(${count})`;
   document.getElementById("cart-total").innerText = `Total: ${rupees(total)}`;
-  document.getElementById("cart-count").innerText = `(${cart.reduce((s, i) => s + i.quantity, 0)})`;
   document.getElementById("cart-restaurant-label").innerText = cart.length ? `Restaurant: ${cart[0].restaurantName}` : "";
-  container.innerHTML = "";
 
-  if(!cart.length){ container.innerHTML = "<p class='small'>Cart is empty.</p>"; }
+  itemContainer.innerHTML = "";
+  if(!cart.length){
+    itemContainer.innerHTML = "<p class='small'>Cart is empty.</p>";
+    return;
+  }
 
-  cart.forEach((i, index) => {
-    const div = document.createElement("div");
-    div.className = "list-item";
-    const addonText = (i.addons || []).length ? `<br><span class='small'>Addons: ${i.addons.map((a) => `${escapeHTML(a.name)} (${rupees(a.price)})`).join(", ")}</span>` : "";
-    div.innerHTML = `<b>${escapeHTML(i.name)}</b>${addonText}<br><span class='small'>${i.quantity} × ${rupees(i.price)}</span>
+  cart.forEach((item, index) => {
+    const line = document.createElement("div");
+    line.className = "list-item";
+    line.innerHTML = `
+      <b>${escapeHTML(item.name)}</b><br>
+      <span class='small'>${item.quantity} × ${rupees(item.price)}</span>
       <div class='row' style='margin-top:8px'>
         <button class='button ghost' onclick='updateCartItem(${index},-1)'>-</button>
         <button class='button ghost' onclick='updateCartItem(${index},1)'>+</button>
         <button class='button secondary' onclick='removeCartItem(${index})'>Remove</button>
-      </div>`;
-    container.appendChild(div);
+      </div>
+    `;
+    itemContainer.appendChild(line);
   });
 }
 
-function toggleCart(){ document.getElementById("cart-drawer").classList.toggle("open"); }
+function toggleCart(){
+  document.getElementById("cart-drawer").classList.toggle("open");
+}
 
 async function saveCustomerLocation(latitude, longitude){
   customerLocation = { latitude, longitude };
@@ -349,20 +298,24 @@ async function saveCustomerLocation(latitude, longitude){
 }
 
 async function useCurrentLocation(){
-  if(!navigator.geolocation){ alert("Geolocation not supported"); return; }
+  if(!navigator.geolocation){
+    alert("Geolocation not supported on this device.");
+    return;
+  }
+
   setMessage("Reading current location...");
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    await saveCustomerLocation(pos.coords.latitude, pos.coords.longitude);
+  navigator.geolocation.getCurrentPosition(async (position) => {
+    await saveCustomerLocation(position.coords.latitude, position.coords.longitude);
     toggleMapPicker(false);
-    setMessage("Location saved.");
-  }, (err) => {
-    setMessage(`Location failed: ${err.message}`);
+    setMessage("Location saved successfully.");
+  }, (error) => {
+    setMessage(`Location failed: ${error.message}`);
   }, { enableHighAccuracy: true, timeout: 10000 });
 }
 
 function updateDraftLabel(){
   if(!pinnedLocationDraft){ return; }
-  document.getElementById("location-label").innerText = `Draft pin: Lat ${pinnedLocationDraft.latitude.toFixed(5)}, Lng ${pinnedLocationDraft.longitude.toFixed(5)} (tap Set this location)`;
+  document.getElementById("location-label").innerText = `Draft pin: Lat ${pinnedLocationDraft.latitude.toFixed(5)}, Lng ${pinnedLocationDraft.longitude.toFixed(5)} (tap Confirm Location)`;
 }
 
 function toggleMapPicker(open = null){
@@ -383,13 +336,14 @@ function toggleMapPicker(open = null){
     marker = L.marker([fallback.latitude, fallback.longitude], { draggable: true }).addTo(map);
 
     marker.on("dragend", () => {
-      const ll = marker.getLatLng();
-      pinnedLocationDraft = { latitude: ll.lat, longitude: ll.lng };
+      const location = marker.getLatLng();
+      pinnedLocationDraft = { latitude: location.lat, longitude: location.lng };
       updateDraftLabel();
     });
-    map.on("click", (e) => {
-      marker.setLatLng(e.latlng);
-      pinnedLocationDraft = { latitude: e.latlng.lat, longitude: e.latlng.lng };
+
+    map.on("click", (event) => {
+      marker.setLatLng(event.latlng);
+      pinnedLocationDraft = { latitude: event.latlng.lat, longitude: event.latlng.lng };
       updateDraftLabel();
     });
   } else {
@@ -402,84 +356,118 @@ function toggleMapPicker(open = null){
 }
 
 async function confirmPinnedLocation(){
-  if(!pinnedLocationDraft){ alert("Drop pin on map first"); return; }
+  if(!pinnedLocationDraft){
+    alert("Drop a pin on map first.");
+    return;
+  }
+
   await saveCustomerLocation(pinnedLocationDraft.latitude, pinnedLocationDraft.longitude);
   toggleMapPicker(false);
-  setMessage("Pinned location set successfully.");
+  setMessage("Pinned location saved.");
 }
 
 async function placeOrder(){
   if(placingOrder){ return; }
-  if(!cart.length){ alert("Add items first"); return; }
-  if(!customerLocation){ alert("Set delivery location"); return; }
-  const total = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-  if(total < 99 || total > 1800){ alert("Order must be ₹99-₹1800"); return; }
-  if(new Set(cart.map((i) => i.restaurantId)).size > 1){ alert("Only one restaurant per cart."); return; }
+  if(!cart.length){ alert("Add items to cart first."); return; }
+  if(!customerLocation){ alert("Set delivery location before placing order."); return; }
 
   placingOrder = true;
-  document.getElementById("place-order-btn").disabled = true;
+  const orderButton = document.getElementById("place-order-btn");
+  orderButton.disabled = true;
 
+  const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const restaurantId = cart[0].restaurantId;
-  const { data: order, error } = await supabaseClient.from("orders").insert({
-    customer_id: activeUser.id,
-    restaurant_id: restaurantId,
-    total_amount: total,
-    status: "pending"
-  }).select("id,distance_km").single();
 
-  if(error){
-    alert(error.message);
+  const { data: order, error: orderError } = await supabaseClient
+    .from("orders")
+    .insert({
+      customer_id: activeUser.id,
+      restaurant_id: restaurantId,
+      status: "pending_payment",
+      total_amount: totalAmount,
+      delivery_latitude: customerLocation.latitude,
+      delivery_longitude: customerLocation.longitude
+    })
+    .select("id")
+    .single();
+
+  if(orderError){
+    alert(orderError.message);
     placingOrder = false;
-    document.getElementById("place-order-btn").disabled = false;
+    orderButton.disabled = false;
     return;
   }
 
-  const items = cart.map((i) => ({ order_id: order.id, menu_item_id: i.id, quantity: i.quantity, price: i.price }));
-  await supabaseClient.from("order_items").insert(items);
-  await supabaseClient.from("payments").insert({ order_id: order.id, amount: total, method: "qr_transfer", status: "pending" });
+  const orderItems = cart.map((item) => ({
+    order_id: order.id,
+    menu_item_id: item.menuItemId,
+    quantity: item.quantity,
+    unit_price: item.price
+  }));
+
+  const { error: itemsError } = await supabaseClient.from("order_items").insert(orderItems);
+  if(itemsError){
+    alert(itemsError.message);
+    placingOrder = false;
+    orderButton.disabled = false;
+    return;
+  }
 
   cart = [];
   renderCart();
-  setMessage(`Order ${order.id} created`);
+  setMessage(`Order ${order.id} placed successfully.`);
+
   placingOrder = false;
-  document.getElementById("place-order-btn").disabled = false;
+  orderButton.disabled = false;
   await loadTracking();
 }
 
-async function uploadPaymentProof(){
-  if(!pendingVerification){ alert("No pending payment"); return; }
-  const file = document.getElementById("payment-proof-input").files[0];
-  if(!file){ alert("Select image first"); return; }
-  const path = `${activeUser.id}/${pendingVerification.order_id}-${Date.now()}.jpg`;
-  await supabaseClient.storage.from(PAYMENT_PROOF_BUCKET).upload(path, file, { upsert: true });
-  const { data: urlData } = supabaseClient.storage.from(PAYMENT_PROOF_BUCKET).getPublicUrl(path);
-  await supabaseClient.from("payments").update({ proof_url: urlData.publicUrl, status: "pending_verification" }).eq("id", pendingVerification.id);
-  document.getElementById("payment-proof-msg").innerText = "Proof uploaded.";
-  await loadTracking();
+function renderTimeline(status){
+  const currentIndex = ORDER_TIMELINE.indexOf(status);
+  return ORDER_TIMELINE.map((step, index) => {
+    const done = currentIndex >= index;
+    const icon = done ? "✅" : "○";
+    return `<div class='small'>${icon} ${step}</div>`;
+  }).join("");
 }
 
 async function loadTracking(){
-  const { data } = await supabaseClient.from("orders").select("id,status,total_amount,created_at,payments(id,status)").eq("customer_id", activeUser.id).order("created_at", { ascending: false });
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("id,status,total_amount,created_at")
+    .eq("customer_id", activeUser.id)
+    .order("created_at", { ascending: false });
+
   const container = document.getElementById("tracking-list");
   container.innerHTML = "";
-  pendingVerification = null;
 
-  (data || []).forEach((order) => {
-    const div = document.createElement("div");
-    const pay = (order.payments || [])[0];
-    div.className = "list-item";
-    div.innerHTML = `<b>Order ${order.id}</b> <span class='badge status-${order.status}'>${order.status}</span><br><span class='small'>${rupees(order.total_amount)}${pay ? ` • Payment: ${pay.status}` : ""}</span>`;
-    container.appendChild(div);
-    if(pay && ["pending", "rejected"].includes(pay.status) && !pendingVerification){ pendingVerification = { id: pay.id, order_id: order.id }; }
+  if(error){
+    container.innerHTML = `<p class='small'>${escapeHTML(error.message)}</p>`;
+    return;
+  }
+
+  const orders = data || [];
+  if(!orders.length){
+    container.innerHTML = "<p class='small'>No orders yet.</p>";
+    return;
+  }
+
+  orders.forEach((order) => {
+    const card = document.createElement("div");
+    card.className = "list-item";
+    card.innerHTML = `
+      <b>Order ${order.id}</b>
+      <span class='badge status-${order.status}'>${order.status}</span><br>
+      <span class='small'>${rupees(order.total_amount)} • ${new Date(order.created_at).toLocaleString()}</span>
+      <div style='margin-top:8px'>${renderTimeline(order.status)}</div>
+    `;
+    container.appendChild(card);
   });
-
-  document.getElementById("payment-proof-card").style.display = pendingVerification ? "block" : "none";
-  document.getElementById("pending-order-label").innerText = pendingVerification ? `Pending payment for Order ${pendingVerification.order_id}` : "";
 }
 
 (async function init(){
-  const ok = await requireCustomer();
-  if(!ok) return;
+  const user = await requireCustomer();
+  if(!user){ return; }
   renderCart();
   await loadRestaurants();
   await loadTracking();
