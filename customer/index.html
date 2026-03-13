@@ -35,7 +35,7 @@ let activeUser=null
 let currentRestaurant=null
 let cart=[]
 
-// ---------------- INIT ----------------
+// ---------------- INIT ---------------- //
 
 async function init(){
 
@@ -53,7 +53,7 @@ await loadOrders()
 
 }
 
-// ---------------- RESTAURANTS ----------------
+// ---------------- RESTAURANTS ---------------- //
 
 async function loadRestaurants(){
 
@@ -91,7 +91,7 @@ container.appendChild(div)
 
 }
 
-// ---------------- MENU ----------------
+// ---------------- MENU ---------------- //
 
 async function loadMenu(restaurant){
 
@@ -131,7 +131,7 @@ container.appendChild(div)
 
 }
 
-// ---------------- CART ----------------
+// ---------------- CART ---------------- //
 
 function addToCart(item){
 
@@ -177,7 +177,7 @@ cart.splice(index,1)
 renderCart()
 }
 
-// ---------------- ORDER ----------------
+// ---------------- ORDER ---------------- //
 
 async function placeOrder(){
 
@@ -224,7 +224,7 @@ await loadOrders()
 
 }
 
-// ---------------- ORDERS ----------------
+// ---------------- ORDERS ---------------- //
 
 async function loadOrders(){
 
@@ -265,4 +265,3 @@ init()
 
 </body>
 </html>
-```
