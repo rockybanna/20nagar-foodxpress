@@ -1,6 +1,5 @@
-// ---------- AUTH FUNCTIONS ----------
-
-// signup
+// ---------- AUTH FUNCTIONS ---------- // 
+signup
 async function signup(){
 
   const email = document.getElementById("email").value.trim();
@@ -94,4 +93,3 @@ async function login(){
   }
 
 }
-```
