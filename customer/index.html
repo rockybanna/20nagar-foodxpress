@@ -1,11 +1,15 @@
 <!DOCTYPE html>
+
 <html>
 <head>
 <title>FoodXpress Customer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="../css/style.css">
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <script src="../js/config.js"></script>
+
 </head>
 
 <body>
@@ -35,25 +39,25 @@ let activeUser=null
 let currentRestaurant=null
 let cart=[]
 
-// ---------------- INIT ---------------- //
+// ---------- INIT ----------
 
 async function init(){
 
-const {data}=await supabaseClient.auth.getSession()
+const { data: { session } } = await supabaseClient.auth.getSession()
 
-if(!data.session){
+if(!session){
 window.location.href="../"
 return
 }
 
-activeUser=data.session.user
+activeUser=session.user
 
 await loadRestaurants()
 await loadOrders()
 
 }
 
-// ---------------- RESTAURANTS ---------------- //
+// ---------- RESTAURANTS ----------
 
 async function loadRestaurants(){
 
@@ -91,7 +95,7 @@ container.appendChild(div)
 
 }
 
-// ---------------- MENU ---------------- //
+// ---------- MENU ----------
 
 async function loadMenu(restaurant){
 
@@ -101,6 +105,7 @@ const {data,error}=await supabaseClient
 .from("restaurant_full_menu")
 .select("*")
 .eq("restaurant_id",restaurant.id)
+.order("item_name")
 
 const container=document.getElementById("menu-list")
 container.innerHTML=""
@@ -117,7 +122,7 @@ div.className="list-item"
 
 div.innerHTML=`
 <b>${item.item_name}</b>
-<span>₹${item.price}</span>
+<span> ₹${item.price}</span>
 <button class="button">Add</button>
 `
 
@@ -131,7 +136,7 @@ container.appendChild(div)
 
 }
 
-// ---------------- CART ---------------- //
+// ---------- CART ----------
 
 function addToCart(item){
 
@@ -177,7 +182,7 @@ cart.splice(index,1)
 renderCart()
 }
 
-// ---------------- ORDER ---------------- //
+// ---------- ORDER ----------
 
 async function placeOrder(){
 
@@ -224,7 +229,7 @@ await loadOrders()
 
 }
 
-// ---------------- ORDERS ---------------- //
+// ---------- ORDERS ----------
 
 async function loadOrders(){
 
