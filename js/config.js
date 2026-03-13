@@ -1,4 +1,4 @@
-// ---------- SUPABASE CONFIG ----------
+// ---------- SUPABASE CONFIG ---------- //
 
 const SUPABASE_URL = "https://uouwizrknwrqqynodplv.supabase.co";
 
